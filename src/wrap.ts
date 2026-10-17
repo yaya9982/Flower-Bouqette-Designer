@@ -1,6 +1,6 @@
 import { Axis, Color3, Mesh, MeshBuilder, PBRMaterial, Scene, TransformNode, Vector3 } from '@babylonjs/core';
-import { BINDING, DEFAULT_HEIGHT, shapeLean, surfacePoint, TAU } from './arrange';
-import type { PaperId, ShapeId, Wrap } from './bouquet';
+import type { PaperId, Wrap } from './bouquet';
+import { BINDING, DEFAULT_HEIGHT, SHAPE_OF, TAU, type ShapeId } from './shapes';
 import { PAPER_COLOURS, RIBBON_COLOURS } from './catalog';
 
 const PAPER_LOOK: Record<Exclude<PaperId, 'none'>, { roughness: number; alpha: number }> = {
@@ -43,11 +43,11 @@ export function buildWrap(scene: Scene, wrap: Wrap, shape: ShapeId, radius: numb
     const hex = PAPER_COLOURS.find((c) => c.id === wrap.paperColour)?.hex ?? PAPER_COLOURS[0].hex;
     // Size the paper from the widest point of the rim. A cascading bouquet is measured as an even dome,
     // because its front flowers are meant to hang out through the opening.
-    const measured: ShapeId = shape === 'cascade' ? 'round' : shape;
+    const measured = SHAPE_OF[shape].paperRimShape;
     // Measured at the height flowers start at, so the paper ends under the heads as they are first arranged.
-    let rim = surfacePoint(measured, 0, 1, radius, DEFAULT_HEIGHT).head;
+    let rim = measured.surfacePoint(0, 1, radius, DEFAULT_HEIGHT).head;
     for (let angle = 0; angle < TAU; angle += TAU / 24) {
-      const at = surfacePoint(measured, angle, 1, radius, DEFAULT_HEIGHT).head;
+      const at = measured.surfacePoint(angle, 1, radius, DEFAULT_HEIGHT).head;
       if (Math.hypot(at.x, at.z) > Math.hypot(rim.x, rim.z)) rim = at;
     }
     // The fixed part clears a rim flower's head, which does not shrink with the bouquet.
@@ -60,7 +60,7 @@ export function buildWrap(scene: Scene, wrap: Wrap, shape: ShapeId, radius: numb
       new Vector3(rimRadius * 0.6, BINDING.y + (rimHeight - BINDING.y) * 0.45, 0),
       new Vector3(rimRadius, rimHeight, 0),
     ];
-    const paper = MeshBuilder.CreateLathe('paper', { shape: profile, arc: shape === 'cascade' || shape === 'onesided' ? PAPER_ARC : 1, closed: false, tessellation: 48, sideOrientation: Mesh.DOUBLESIDE, cap: Mesh.NO_CAP }, scene);
+    const paper = MeshBuilder.CreateLathe('paper', { shape: profile, arc: SHAPE_OF[shape].paperOpening ? PAPER_ARC : 1, closed: false, tessellation: 48, sideOrientation: Mesh.DOUBLESIDE, cap: Mesh.NO_CAP }, scene);
     paper.rotation.y = PAPER_OPENING_TURN;
     add(paper, flatMaterial(scene, 'paperMaterial', hex, look.roughness, look.alpha));
   }
@@ -87,6 +87,6 @@ export function buildWrap(scene: Scene, wrap: Wrap, shape: ShapeId, radius: numb
   }
 
   // Lean the whole wrap about the tie, the same way the shape leans its flowers (Babylon turns the other way round).
-  root.rotateAround(new Vector3(BINDING.x, BINDING.y, BINDING.z), Axis.X, -shapeLean(shape));
+  root.rotateAround(new Vector3(BINDING.x, BINDING.y, BINDING.z), Axis.X, -SHAPE_OF[shape].lean);
   return root;
 }

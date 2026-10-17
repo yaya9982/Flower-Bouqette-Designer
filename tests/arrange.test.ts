@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import {
-  autoArrange, BINDING, distance, headDiameter, largestGap, maxReach,
-  stemPose, surfaceFromPoint, surfacePoint, surfaceRadius, TAU,
-} from '../src/arrange';
 import { SHAPES, type Stem } from '../src/bouquet';
-import { FLOWERS } from '../src/catalog';
+import { Catalog, FLOWERS } from '../src/catalog';
+import { Arranger } from '../src/arrange';
+import { BINDING, distance, SHAPE_OF, TAU } from '../src/shapes';
+
+const catalog = new Catalog(FLOWERS);
+const arranger = new Arranger(catalog);
 
 type Spec = [flower: string, count: number][];
 
@@ -32,36 +33,36 @@ describe('autoArrange', () => {
   for (const [name, spec] of Object.entries(SETS)) {
     for (const shape of SHAPES) {
       it(`${name} in ${shape}: no two heads crowd closer than 60%`, () => {
-        const stems = autoArrange(make(spec), FLOWERS);
-        const radius = surfaceRadius(stems, FLOWERS);
-        const heads = stems.map((s) => stemPose(shape, s, radius).head);
+        const stems = arranger.autoArrange(make(spec));
+        const radius = arranger.surfaceRadius(stems);
+        const heads = stems.map((s) => SHAPE_OF[shape].stemPose(s, radius).head);
         for (let i = 0; i < stems.length; i++) {
           for (let j = i + 1; j < stems.length; j++) {
-            const needed = (headDiameter(stems[i].flower, FLOWERS) + headDiameter(stems[j].flower, FLOWERS)) / 2;
+            const needed = (catalog.headDiameter(stems[i].flower) + catalog.headDiameter(stems[j].flower)) / 2;
             expect(distance(heads[i], heads[j])).toBeGreaterThanOrEqual(needed * CLOSEST);
           }
         }
       });
 
       it(`${name} in ${shape}: every head is within reach of the binding point`, () => {
-        const stems = autoArrange(make(spec), FLOWERS);
-        const radius = surfaceRadius(stems, FLOWERS);
+        const stems = arranger.autoArrange(make(spec));
+        const radius = arranger.surfaceRadius(stems);
         for (const s of stems) {
-          const { head } = stemPose(shape, s, radius);
+          const { head } = SHAPE_OF[shape].stemPose(s, radius);
           expect(Number.isFinite(head.x + head.y + head.z)).toBe(true);
-          expect(distance(head, BINDING)).toBeLessThanOrEqual(maxReach(shape, radius) + 1e-9);
+          expect(distance(head, BINDING)).toBeLessThanOrEqual(SHAPE_OF[shape].maxReach(radius) + 1e-9);
         }
       });
     }
   }
 
   it('gives the same result for the same input', () => {
-    expect(autoArrange(make(SETS.fortyMixed), FLOWERS)).toEqual(autoArrange(make(SETS.fortyMixed), FLOWERS));
+    expect(arranger.autoArrange(make(SETS.fortyMixed))).toEqual(arranger.autoArrange(make(SETS.fortyMixed)));
   });
 
   it('keeps every stem, with valid positions and no tilt', () => {
     const input = make(SETS.fortyMixed);
-    const out = autoArrange(input, FLOWERS);
+    const out = arranger.autoArrange(input);
     expect(out.map((s) => s.id).sort()).toEqual(input.map((s) => s.id).sort());
     for (const s of out) {
       expect(s.angle).toBeGreaterThanOrEqual(0);
@@ -74,11 +75,11 @@ describe('autoArrange', () => {
   });
 
   it('puts a single flower at the centre', () => {
-    expect(autoArrange(make(SETS.one), FLOWERS)[0]).toMatchObject({ angle: 0, dist: 0 });
+    expect(arranger.autoArrange(make(SETS.one))[0]).toMatchObject({ angle: 0, dist: 0 });
   });
 
   it('spreads each flower type across the bouquet', () => {
-    const out = autoArrange(make([['rose', 6], ['tulip', 6]]), FLOWERS);
+    const out = arranger.autoArrange(make([['rose', 6], ['tulip', 6]]));
     expect(out.slice(0, 4).map((s) => s.flower)).toEqual(['rose', 'tulip', 'rose', 'tulip']);
   });
 });
@@ -88,7 +89,7 @@ describe('surface conversion', () => {
     it(`${shape}: surface to 3D and back returns the starting position`, () => {
       for (let angle = 0.05; angle < TAU; angle += 0.37) {
         for (let dist = 0.1; dist <= 1; dist += 0.15) {
-          const back = surfaceFromPoint(shape, surfacePoint(shape, angle, dist, 0.2).head, 0.2);
+          const back = SHAPE_OF[shape].surfaceFromPoint(SHAPE_OF[shape].surfacePoint(angle, dist, 0.2).head, 0.2);
           expect(back.angle).toBeCloseTo(angle, 6);
           expect(back.dist).toBeCloseTo(dist, 6);
         }
@@ -97,17 +98,17 @@ describe('surface conversion', () => {
   }
 
   it('returns the centre for the binding point itself', () => {
-    expect(surfaceFromPoint('round', BINDING, 0.2)).toEqual({ angle: 0, dist: 0 });
+    expect(SHAPE_OF['round'].surfaceFromPoint(BINDING, 0.2)).toEqual({ angle: 0, dist: 0 });
   });
 
   it('clamps a point below the rim to the rim', () => {
-    expect(surfaceFromPoint('round', { x: 1, y: BINDING.y - 1, z: 0 }, 0.2).dist).toBe(1);
+    expect(SHAPE_OF['round'].surfaceFromPoint({ x: 1, y: BINDING.y - 1, z: 0 }, 0.2).dist).toBe(1);
   });
 
   it('height moves the head along its stem and tilt turns only the face', () => {
-    const flat = surfacePoint('round', 1, 0.5, 0.2);
-    const raised = surfacePoint('round', 1, 0.5, 0.2, 1);
-    const tilted = surfacePoint('round', 1, 0.5, 0.2, 0, 0.3);
+    const flat = SHAPE_OF['round'].surfacePoint(1, 0.5, 0.2);
+    const raised = SHAPE_OF['round'].surfacePoint(1, 0.5, 0.2, 1);
+    const tilted = SHAPE_OF['round'].surfacePoint(1, 0.5, 0.2, 0, 0.3);
     expect(distance(raised.head, BINDING)).toBeGreaterThan(distance(flat.head, BINDING));
     expect(tilted.head).toEqual(flat.head);
     expect(tilted.face).not.toEqual(flat.face);
@@ -115,47 +116,47 @@ describe('surface conversion', () => {
   });
 
   it('cascade drops below the binding point at the front only', () => {
-    expect(surfacePoint('cascade', 0, 1, 0.2).head.y).toBeLessThan(BINDING.y);
-    expect(surfacePoint('cascade', Math.PI, 1, 0.2).head.y).toBeGreaterThan(BINDING.y);
+    expect(SHAPE_OF['cascade'].surfacePoint(0, 1, 0.2).head.y).toBeLessThan(BINDING.y);
+    expect(SHAPE_OF['cascade'].surfacePoint(Math.PI, 1, 0.2).head.y).toBeGreaterThan(BINDING.y);
   });
 
   it('one-sided keeps every head in the front half', () => {
     for (let angle = 0; angle < TAU; angle += 0.2) {
-      expect(surfacePoint('onesided', angle, 1, 0.2).head.z).toBeLessThanOrEqual(1e-9);
+      expect(SHAPE_OF['onesided'].surfacePoint(angle, 1, 0.2).head.z).toBeLessThanOrEqual(1e-9);
     }
   });
 });
 
 describe('surfaceRadius', () => {
   it('grows with the number and size of flowers', () => {
-    const few = surfaceRadius(make([['rose', 5]]), FLOWERS);
-    const many = surfaceRadius(make([['rose', 20]]), FLOWERS);
-    const bigger = surfaceRadius(make([['sunflower', 20]]), FLOWERS);
+    const few = arranger.surfaceRadius(make([['rose', 5]]));
+    const many = arranger.surfaceRadius(make([['rose', 20]]));
+    const bigger = arranger.surfaceRadius(make([['sunflower', 20]]));
     expect(many).toBeGreaterThan(few);
     expect(bigger).toBeGreaterThan(many);
   });
 
   it('uses a default size for a flower missing from the catalogue', () => {
-    expect(headDiameter('not-a-flower', FLOWERS)).toBe(0.07);
+    expect(catalog.headDiameter('not-a-flower')).toBe(0.07);
   });
 });
 
 describe('largestGap', () => {
   it('finds a free spot in a full-looking bouquet', () => {
     for (const shape of SHAPES) {
-      const stems = autoArrange(make(SETS.twelveMixed), FLOWERS);
-      const gap = largestGap(stems, FLOWERS, 'rose');
-      const radius = surfaceRadius([...stems, { flower: 'rose' }], FLOWERS);
-      const spot = surfacePoint(shape, gap.angle, gap.dist, radius).head;
+      const stems = arranger.autoArrange(make(SETS.twelveMixed));
+      const gap = arranger.largestGap(stems, 'rose');
+      const radius = arranger.surfaceRadius([...stems, { flower: 'rose' }]);
+      const spot = SHAPE_OF[shape].surfacePoint(gap.angle, gap.dist, radius).head;
       for (const s of stems) {
-        const needed = (headDiameter(s.flower, FLOWERS) + headDiameter('rose', FLOWERS)) / 2;
-        expect(distance(spot, stemPose(shape, s, radius).head)).toBeGreaterThanOrEqual(needed * CLOSEST);
+        const needed = (catalog.headDiameter(s.flower) + catalog.headDiameter('rose')) / 2;
+        expect(distance(spot, SHAPE_OF[shape].stemPose(s, radius).head)).toBeGreaterThanOrEqual(needed * CLOSEST);
       }
     }
   });
 
   it('returns the centre when there are no stems', () => {
-    expect(largestGap([], FLOWERS, 'rose')).toEqual({ angle: 0, dist: 0 });
+    expect(arranger.largestGap([], 'rose')).toEqual({ angle: 0, dist: 0 });
   });
 });
 
@@ -163,9 +164,9 @@ describe('stem length', () => {
   it('never lets a lowered head reach or pass the binding point', () => {
     for (const shape of SHAPES) {
       for (const flower of ['tulip', 'rose', 'carnation']) {
-        const radius = surfaceRadius(make([[flower, 1]]), FLOWERS);
+        const radius = arranger.surfaceRadius(make([[flower, 1]]));
         for (const dist of [0, 0.5, 1]) {
-          const { head, dir } = surfacePoint(shape, 0.3, dist, radius, -1);
+          const { head, dir } = SHAPE_OF[shape].surfacePoint(0.3, dist, radius, -1);
           const along = (head.x - BINDING.x) * dir.x + (head.y - BINDING.y) * dir.y + (head.z - BINDING.z) * dir.z;
           expect(along).toBeGreaterThan(0.0199);
         }
@@ -176,12 +177,12 @@ describe('stem length', () => {
 
 describe('adding flowers one at a time', () => {
   const overlaps = (stems: Stem[], shape: (typeof SHAPES)[number]) => {
-    const radius = surfaceRadius(stems, FLOWERS);
-    const heads = stems.map((s) => stemPose(shape, s, radius).head);
+    const radius = arranger.surfaceRadius(stems);
+    const heads = stems.map((s) => SHAPE_OF[shape].stemPose(s, radius).head);
     let count = 0;
     for (let i = 0; i < stems.length; i++) {
       for (let j = i + 1; j < stems.length; j++) {
-        const needed = (headDiameter(stems[i].flower, FLOWERS) + headDiameter(stems[j].flower, FLOWERS)) / 2;
+        const needed = (catalog.headDiameter(stems[i].flower) + catalog.headDiameter(stems[j].flower)) / 2;
         if (distance(heads[i], heads[j]) < needed * CLOSEST) count++;
       }
     }
@@ -190,10 +191,10 @@ describe('adding flowers one at a time', () => {
 
   it('keeps heads from overlapping too far in any shape, whichever shape they were added in', () => {
     const order = ['lily', 'carnation', 'sunflower', 'rose', 'tulip', 'daisy'];
-    let stems = autoArrange(make(SETS.twelveMixed), FLOWERS);
+    let stems = arranger.autoArrange(make(SETS.twelveMixed));
     for (let i = 0; i < 28; i++) {
       const flower = order[i % order.length];
-      const gap = largestGap(stems, FLOWERS, flower);
+      const gap = arranger.largestGap(stems, flower);
       stems = [...stems, { id: `x${i}`, flower, colour: 'any', angle: gap.angle, dist: gap.dist, height: 0, tilt: 0 }];
     }
     expect(stems).toHaveLength(40);
@@ -202,20 +203,20 @@ describe('adding flowers one at a time', () => {
 });
 
 describe('height range', () => {
-  const radius = surfaceRadius(make(SETS.twelveMixed), FLOWERS);
+  const radius = arranger.surfaceRadius(make(SETS.twelveMixed));
 
   it('the lowest setting brings a head down to about the bow, in every shape', () => {
     for (const shape of SHAPES) {
       for (const dist of [0, 0.5, 1]) {
-        const reach = distance(surfacePoint(shape, 1, dist, radius, -1).head, BINDING);
+        const reach = distance(SHAPE_OF[shape].surfacePoint(1, dist, radius, -1).head, BINDING);
         expect(reach, `${shape} at ${dist}`).toBeCloseTo(0.06, 6);
       }
     }
   });
 
   it('small natural variation still moves a head only a little', () => {
-    const level = distance(surfacePoint('round', 1, 0.5, radius).head, BINDING);
-    const lowered = distance(surfacePoint('round', 1, 0.5, radius, -0.4).head, BINDING);
+    const level = distance(SHAPE_OF['round'].surfacePoint(1, 0.5, radius).head, BINDING);
+    const lowered = distance(SHAPE_OF['round'].surfacePoint(1, 0.5, radius, -0.4).head, BINDING);
     expect(level - lowered).toBeGreaterThan(0.015);
     expect(level - lowered).toBeLessThan(0.03);
   });
@@ -223,9 +224,9 @@ describe('height range', () => {
 
 describe('cascade', () => {
   it('trails down the front without stretching the flowers far apart', () => {
-    const radius = surfaceRadius(make(SETS.twelveMixed), FLOWERS);
+    const radius = arranger.surfaceRadius(make(SETS.twelveMixed));
     const gap = (shape: (typeof SHAPES)[number]) =>
-      distance(surfacePoint(shape, 0, 1, radius).head, surfacePoint(shape, 0, 0.8, radius).head);
+      distance(SHAPE_OF[shape].surfacePoint(0, 1, radius).head, SHAPE_OF[shape].surfacePoint(0, 0.8, radius).head);
     expect(gap('cascade')).toBeLessThan(gap('round') * 2.5);
   });
 });

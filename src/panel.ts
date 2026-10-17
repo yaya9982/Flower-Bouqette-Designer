@@ -1,6 +1,7 @@
 import { MAX_STEMS, MIN_STEMS, type Bouquet, type PaperId, type ShapeId, type Wrap } from './bouquet';
-import { COLOUR_FAMILIES, PAPER_COLOURS, RIBBON_COLOURS, type FlowerType, type NamedColour } from './catalog';
+import { PAPER_COLOURS, RIBBON_COLOURS, type Catalog, type FlowerType, type NamedColour } from './catalog';
 import { FEATURED_PRESETS, PRESETS } from './presets';
+import { SHAPE_OF, SHAPES } from './shapes';
 
 /**
  * While testing, "Random" opens a list of the other presets to choose from instead of picking one.
@@ -35,7 +36,6 @@ export interface PanelActions {
   loadPreset(presetId: string): void;
 }
 
-const SHAPE_NAMES: Record<ShapeId, string> = { round: 'Round', cascade: 'Cascading', loose: 'Loose hand-tied', onesided: 'One-sided' };
 const PAPER_NAMES: Record<PaperId, string> = { none: 'No paper', kraft: 'Kraft', matte: 'Matte', tissue: 'Tissue' };
 
 type Child = Node | string;
@@ -181,7 +181,7 @@ function colourWheel(families: { colour: NamedColour; count: number }[], total: 
     svg('defs', {}, mixed), ...wedges, hub);
 }
 
-export function renderPanel(root: HTMLElement, state: PanelState, catalog: FlowerType[], actions: PanelActions): void {
+export function renderPanel(root: HTMLElement, state: PanelState, catalog: Catalog, actions: PanelActions): void {
   const { bouquet, selectedId } = state;
   const focusedKey = (document.activeElement as HTMLElement | SVGElement | null)?.dataset?.key;
   const listScroll = root.querySelector('.flower-list')?.scrollTop ?? 0;
@@ -190,7 +190,7 @@ export function renderPanel(root: HTMLElement, state: PanelState, catalog: Flowe
   const name = (type: FlowerType) => el('span', { class: 'name' }, type.name, ...(type.title ? [el('small', {}, type.title)] : []));
 
   // Only the flowers in the bouquet, in the order they were first added.
-  const inBouquet = [...new Set(bouquet.stems.map((s) => s.flower))].flatMap((id) => catalog.find((f) => f.id === id) ?? []);
+  const inBouquet = [...new Set(bouquet.stems.map((s) => s.flower))].flatMap((id) => catalog.find(id) ?? []);
   const bouquetRows = inBouquet.map((type) => {
     const count = bouquet.stems.filter((s) => s.flower === type.id).length;
     const label = flowerLabel(type);
@@ -203,11 +203,9 @@ export function renderPanel(root: HTMLElement, state: PanelState, catalog: Flowe
   });
 
   // The wheel offers only colours some flower comes in. A filter left on a colour that has gone is dropped.
-  const families = COLOUR_FAMILIES
-    .map((colour) => ({ colour, count: catalog.filter((f) => f.colours.some((c) => c.id === colour.id)).length }))
-    .filter((f) => f.count > 0);
+  const families = catalog.families();
   if (!families.some((f) => f.colour.id === colourFilter)) colourFilter = null;
-  const offered = catalog
+  const offered = catalog.flowers
     .filter((f) => colourFilter === null || f.colours.some((c) => c.id === colourFilter))
     .sort((a, b) => a.name.localeCompare(b.name) || (a.title ?? '').localeCompare(b.title ?? ''));
   const addRows = offered.map((type) => el('div', { class: 'row', role: 'listitem' },
@@ -227,11 +225,11 @@ export function renderPanel(root: HTMLElement, state: PanelState, catalog: Flowe
     section('Your bouquet', ...bouquetRows, el('p', { class: 'row' }, `${total} of ${MAX_STEMS} flowers`)),
     section('Add flowers',
       el('p', { class: 'hint' }, 'Pick a colour on the wheel to narrow the list.'),
-      colourWheel(families, catalog.length, colourFilter, pickColour),
+      colourWheel(families, catalog.flowers.length, colourFilter, pickColour),
       el('div', { class: 'flower-list', role: 'list', 'aria-label': 'Flowers to add' }, ...addRows),
     ),
     section('Shape',
-      select('shape', 'Bouquet shape', (Object.keys(SHAPE_NAMES) as ShapeId[]).map((id) => ({ id, name: SHAPE_NAMES[id] })), bouquet.shape, (id) => actions.setShape(id as ShapeId)),
+      select('shape', 'Bouquet shape', SHAPES.map((id) => ({ id, name: SHAPE_OF[id].label })), bouquet.shape, (id) => actions.setShape(id as ShapeId)),
     ),
     section('Wrapping',
       select('paper', 'Paper', (Object.keys(PAPER_NAMES) as PaperId[]).map((id) => ({ id, name: PAPER_NAMES[id] })), bouquet.wrap.paper, (id) => actions.setWrap({ paper: id as PaperId })),
@@ -241,13 +239,13 @@ export function renderPanel(root: HTMLElement, state: PanelState, catalog: Flowe
   ];
 
   const stem = bouquet.stems.find((s) => s.id === selectedId);
-  const type = stem && catalog.find((f) => f.id === stem.flower);
+  const type = stem && catalog.find(stem.flower);
   if (stem && type) {
     sections.push(section(`Selected: ${flowerLabel(type)}`,
       swatches('flower-colour', 'Colour', type.colours, stem.colour, (id) => actions.recolour(id)),
       slider('height', 'Height', -1, 1, stem.height, (v) => actions.previewAdjust({ height: v }), (v) => actions.adjust({ height: v })),
       slider('tilt', 'Tilt', -0.5, 0.5, stem.tilt, (v) => actions.previewAdjust({ tilt: v }), (v) => actions.adjust({ tilt: v })),
-      select('swap', 'Swap for', catalog.map((f) => ({ id: f.id, name: flowerLabel(f) })), stem.flower, (id) => actions.swap(id)),
+      select('swap', 'Swap for', catalog.flowers.map((f) => ({ id: f.id, name: flowerLabel(f) })), stem.flower, (id) => actions.swap(id)),
       button('remove', 'Remove this flower', () => actions.remove(), { class: 'danger' }, total <= MIN_STEMS),
     ));
   } else {

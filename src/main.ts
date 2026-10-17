@@ -1,46 +1,38 @@
-import {
-  addStem, adjustStem, commit, createDefaultBouquet, createHistory, loadBouquet, moveStem, rearrange, recolourStem, redo,
-  removeOneOfType, removeStem, resolveSelection, saveBouquet, setShape, setWrap, swapStem, undo, type Bouquet, type Store,
-} from './bouquet';
-import { FLOWERS } from './catalog';
+import { BouquetEditor, BouquetStore, History, type Bouquet } from './bouquet';
+import { Catalog, FLOWERS } from './catalog';
 import { renderPanel, type PanelActions } from './panel';
-import { presetBouquet, PRESETS } from './presets';
+import { Presets } from './presets';
 import { createScene } from './scene';
 
 const canvas = document.getElementById('view') as HTMLCanvasElement;
 const panelRoot = document.getElementById('panel') as HTMLElement;
-const scene = createScene(canvas, FLOWERS);
+const catalog = new Catalog(FLOWERS);
+const scene = createScene(canvas, catalog);
+const editor = new BouquetEditor(catalog);
+const store = BouquetStore.browser(editor);
+const presets = new Presets(editor);
 
-/** Browser storage, or a stand-in that keeps nothing when the browser blocks it. */
-const store: Store = (() => {
-  try {
-    return window.localStorage;
-  } catch {
-    return { getItem: () => null, setItem: () => {} };
-  }
-})();
-
-let history = createHistory(loadBouquet(FLOWERS, store) ?? createDefaultBouquet(FLOWERS));
+const history = new History(store.load() ?? editor.createDefault());
 let selectedId: string | null = null;
 /** A change being shown but not yet recorded (a slider or a flower mid-drag). */
 let draft: Bouquet | null = null;
 
 function refresh(): void {
   draft = null;
-  selectedId = resolveSelection(history.present, selectedId);
+  selectedId = BouquetEditor.resolveSelection(history.present, selectedId);
   scene.render(history.present, selectedId);
   renderPanel(panelRoot, {
     bouquet: history.present,
     selectedId,
-    canUndo: history.past.length > 0,
-    canRedo: history.future.length > 0,
-  }, FLOWERS, actions);
-  saveBouquet(history.present, store);
+    canUndo: history.canUndo,
+    canRedo: history.canRedo,
+  }, catalog, actions);
+  store.save(history.present);
 }
 
 /** Record a change. Does nothing extra if the change was refused and returned the same bouquet. */
 function apply(next: Bouquet): void {
-  history = commit(history, next);
+  history.commit(next);
   refresh();
 }
 
@@ -53,22 +45,22 @@ function preview(next: Bouquet): void {
 const onSelected = (change: (b: Bouquet, stemId: string) => Bouquet) => (selectedId ? change(history.present, selectedId) : history.present);
 
 const actions: PanelActions = {
-  add: (flowerId, colourId) => apply(addStem(history.present, flowerId, FLOWERS, colourId)),
-  removeOne: (flowerId) => apply(removeOneOfType(history.present, flowerId)),
-  setShape: (shape) => apply(setShape(history.present, shape)),
-  setWrap: (patch) => apply(setWrap(history.present, patch)),
-  recolour: (colourId) => apply(onSelected((b, id) => recolourStem(b, id, colourId, FLOWERS))),
-  previewAdjust: (patch) => preview(onSelected((b, id) => adjustStem(b, id, patch))),
-  adjust: (patch) => apply(onSelected((b, id) => adjustStem(b, id, patch))),
-  swap: (flowerId) => apply(onSelected((b, id) => swapStem(b, id, flowerId, FLOWERS))),
-  remove: () => apply(onSelected((b, id) => removeStem(b, id))),
-  undo: () => { history = undo(history); refresh(); },
-  redo: () => { history = redo(history); refresh(); },
-  rearrange: () => apply(rearrange(history.present, FLOWERS)),
+  add: (flowerId, colourId) => apply(editor.add(history.present, flowerId, colourId)),
+  removeOne: (flowerId) => apply(editor.removeOneOfType(history.present, flowerId)),
+  setShape: (shape) => apply(editor.setShape(history.present, shape)),
+  setWrap: (patch) => apply(editor.setWrap(history.present, patch)),
+  recolour: (colourId) => apply(onSelected((b, id) => editor.recolour(b, id, colourId))),
+  previewAdjust: (patch) => preview(onSelected((b, id) => editor.adjust(b, id, patch))),
+  adjust: (patch) => apply(onSelected((b, id) => editor.adjust(b, id, patch))),
+  swap: (flowerId) => apply(onSelected((b, id) => editor.swap(b, id, flowerId))),
+  remove: () => apply(onSelected((b, id) => editor.remove(b, id))),
+  undo: () => { history.undo(); refresh(); },
+  redo: () => { history.redo(); refresh(); },
+  rearrange: () => apply(editor.rearrange(history.present)),
   resetView: () => scene.resetView(),
   loadPreset: (presetId) => {
-    const preset = PRESETS.find((p) => p.id === presetId);
-    const next = preset && presetBouquet(preset, FLOWERS);
+    const preset = presets.find(presetId);
+    const next = preset && presets.build(preset);
     if (!next) return;
     selectedId = null;
     apply(next);
@@ -80,7 +72,7 @@ scene.onSelect = (stemId) => {
   selectedId = stemId;
   refresh();
 };
-scene.onDragMove = (stemId, angle, dist) => preview(moveStem(history.present, stemId, angle, dist));
+scene.onDragMove = (stemId, angle, dist) => preview(editor.move(history.present, stemId, angle, dist));
 scene.onDragEnd = () => {
   if (draft) apply(draft);
 };

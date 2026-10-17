@@ -5,9 +5,10 @@ import {
   HemisphericLight, HighlightLayer, LoadAssetContainerAsync, Matrix, Mesh, MeshBuilder, PBRMaterial, PointerEventTypes, Quaternion, Scene, ShadowGenerator,
   TransformNode, Vector3,
 } from '@babylonjs/core';
-import { BINDING, maxReach, stemFoot, stemPose, surfaceFromPoint, surfacePoint, surfaceRadius, TAU, type Pose, type Vec3 } from './arrange';
-import type { Bouquet, ShapeId } from './bouquet';
-import type { FlowerType } from './catalog';
+import { Arranger } from './arrange';
+import type { Bouquet } from './bouquet';
+import type { Catalog, FlowerType } from './catalog';
+import { BINDING, SHAPE_OF, TAU, type Pose, type ShapeId, type Vec3 } from './shapes';
 import { buildWrap } from './wrap';
 
 export interface SceneApi {
@@ -48,7 +49,8 @@ const SURFACE_WEDGES = 12;
 
 const v3 = (p: Vec3) => new Vector3(p.x, p.y, p.z);
 
-export function createScene(canvas: HTMLCanvasElement, catalog: FlowerType[]): SceneApi {
+export function createScene(canvas: HTMLCanvasElement, catalog: Catalog): SceneApi {
+  const arranger = new Arranger(catalog);
   const engine = new Engine(canvas, true, { stencil: true });
   const scene = new Scene(engine);
   scene.clearColor = Color4.FromHexString(`${BACKGROUND}ff`);
@@ -169,7 +171,7 @@ export function createScene(canvas: HTMLCanvasElement, catalog: FlowerType[]): S
   }
 
   function buildStem(shape: ShapeId, pose: Pose, stemId: string): Mesh {
-    const foot = v3(stemFoot(shape, pose));
+    const foot = v3(SHAPE_OF[shape].stemFoot(pose));
     const tube = MeshBuilder.CreateTube(`stem-${stemId}`, { path: [foot, v3(BINDING), v3(pose.head)], radius: 0.004, tessellation: 6 }, scene);
     tube.material = material(STEM_COLOUR);
     tube.isPickable = false;
@@ -225,7 +227,7 @@ export function createScene(canvas: HTMLCanvasElement, catalog: FlowerType[]): S
         const points: Vector3[] = [];
         for (let spoke = wedge * perWedge; spoke <= (wedge + 1) * perWedge; spoke++) {
           const angle = Math.min((spoke / SURFACE_SPOKES) * TAU, TAU - 1e-6);
-          points.push(v3(surfacePoint(shape, angle, ring / SURFACE_RINGS, radius, height).head));
+          points.push(v3(SHAPE_OF[shape].surfacePoint(angle, ring / SURFACE_RINGS, radius, height).head));
         }
         rings.push(points);
       }
@@ -265,12 +267,12 @@ export function createScene(canvas: HTMLCanvasElement, catalog: FlowerType[]): S
 
   function render(bouquet: Bouquet, selectedId: string | null): void {
     lastRender = { bouquet, selectedId };
-    const radius = surfaceRadius(bouquet.stems, catalog);
+    const radius = arranger.surfaceRadius(bouquet.stems);
     const seen = new Set<string>();
     let lowest = 0;
 
     for (const stem of bouquet.stems) {
-      const type = catalog.find((f) => f.id === stem.flower);
+      const type = catalog.find(stem.flower);
       if (!type) continue;
       seen.add(stem.id);
       const hex = type.colours.find((c) => c.id === stem.colour)?.hex ?? type.colours[0].hex;
@@ -289,7 +291,7 @@ export function createScene(canvas: HTMLCanvasElement, catalog: FlowerType[]): S
         nodes.set(stem.id, node);
       }
 
-      const pose = stemPose(bouquet.shape, stem, radius);
+      const pose = SHAPE_OF[bouquet.shape].stemPose(stem, radius);
       lowest = Math.min(lowest, pose.head.y - type.headDiameter / 2);
       const placed = [pose.head.x, pose.head.y, pose.head.z, pose.face.x, pose.face.y, pose.face.z].map((n) => n.toFixed(5)).join(',');
       if (node.placed !== placed) {
@@ -310,7 +312,7 @@ export function createScene(canvas: HTMLCanvasElement, catalog: FlowerType[]): S
 
     // A cascading bouquet hangs below its stems; lower the floor so nothing sinks into it.
     ground.position.y = lowest - 0.01;
-    reach = maxReach(bouquet.shape, radius);
+    reach = SHAPE_OF[bouquet.shape].maxReach(radius);
     currentShape = bouquet.shape;
     currentSelected = selectedId;
     currentStems = bouquet.stems;
@@ -395,7 +397,7 @@ export function createScene(canvas: HTMLCanvasElement, catalog: FlowerType[]): S
       press.dragging = true;
       const point = dragPoint(press.stemId);
       if (point) {
-        const at = surfaceFromPoint(currentShape, point, currentRadius);
+        const at = SHAPE_OF[currentShape].surfaceFromPoint(point, currentRadius);
         api.onDragMove(press.stemId, at.angle, at.dist);
       }
     } else if (info.type === PointerEventTypes.POINTERUP && press && isLeft) {

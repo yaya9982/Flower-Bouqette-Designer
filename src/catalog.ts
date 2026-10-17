@@ -64,7 +64,7 @@ export const COLOUR_FAMILIES: NamedColour[] = [
   { id: 'multicolour', name: 'Mixed', hex: '#b9b2a6' },
 ];
 
-/** The first six can be recoloured. Their order matters: the starting bouquet uses the first three. */
+/** The built-in flowers: all but the sunflower can be recoloured. Their order matters: the starting bouquet uses the first three. */
 const TINTABLE_FLOWERS: FlowerType[] = [
   {
     id: 'rose', name: 'Rose', model: 'rose.glb', petalMaterial: 'petal',
@@ -165,3 +165,26 @@ export const RIBBON_COLOURS: NamedColour[] = [
   { id: 'lilac', name: 'Lilac', hex: '#b9a2d6' },
   { id: 'orange', name: 'Burnt orange', hex: '#c8692b' },
 ];
+
+/** Default head size for a flower id the catalogue does not know. */
+const DEFAULT_DIAMETER = 0.07;
+
+/** The flowers on offer, looked up by id. */
+export class Catalog {
+  constructor(readonly flowers: readonly FlowerType[]) {}
+
+  find(id: string): FlowerType | undefined {
+    return this.flowers.find((f) => f.id === id);
+  }
+
+  headDiameter(id: string): number {
+    return this.find(id)?.headDiameter ?? DEFAULT_DIAMETER;
+  }
+
+  /** The colour families some flower comes in, with how many flowers each has, in wheel order. */
+  families(): { colour: NamedColour; count: number }[] {
+    return COLOUR_FAMILIES
+      .map((colour) => ({ colour, count: this.flowers.filter((f) => f.colours.some((c) => c.id === colour.id)).length }))
+      .filter((f) => f.count > 0);
+  }
+}

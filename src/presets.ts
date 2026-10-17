@@ -1,6 +1,5 @@
-import { DEFAULT_HEIGHT, TAU } from './arrange';
-import { validateBouquet, type Bouquet, type ShapeId, type Wrap } from './bouquet';
-import type { FlowerType } from './catalog';
+import type { Bouquet, BouquetEditor, Wrap } from './bouquet';
+import { DEFAULT_HEIGHT, SHAPE_OF, type ShapeId } from './shapes';
 
 /**
  * Ready-made bouquets, most praised first. Each one was found by the bouquet research of 14 October 2026
@@ -502,14 +501,10 @@ export const FEATURED_PRESETS = 3;
 const rad = (degrees: number) => (degrees * Math.PI) / 180;
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
-/**
- * Turns a viewing angle (0 = front) into the stored one. The one-sided shape fans its whole range over the
- * front half, with the front in the middle of the range.
- */
+/** Turns a viewing angle (0 = front) into the stored one, which depends on the shape. */
 function storedAngle(shape: ShapeId, viewDegrees: number): number {
   const v = ((viewDegrees % 360) + 540) % 360 - 180; // -180 to 180
-  if (shape === 'onesided') return clamp(rad(2 * v + 180), 0, TAU - 1e-6);
-  return ((rad(v) % TAU) + TAU) % TAU;
+  return SHAPE_OF[shape].storedAngle(v);
 }
 
 function groupAngles(g: Group): number[] {
@@ -520,14 +515,33 @@ function groupAngles(g: Group): number[] {
   return Array.from({ length: g.n }, (_, i) => at - arc / 2 + (i * arc) / (g.n - 1));
 }
 
-/** The bouquet for a preset, checked like a saved design; null if it uses a flower or colour the catalogue lacks. */
-export function presetBouquet(preset: Preset, catalog: FlowerType[]): Bouquet | null {
-  const stems = preset.groups.flatMap((g) => groupAngles(g).map((angle) => ({
-    flower: g.f, colour: g.c,
-    angle: storedAngle(preset.shape, angle),
-    dist: g.d,
-    height: clamp(DEFAULT_HEIGHT + (g.h ?? 0), -1, 1),
-    tilt: clamp(rad(g.tilt ?? 0), -0.5, 0.5),
-  })));
-  return validateBouquet({ version: 1, shape: preset.shape, wrap: preset.wrap, stems: stems.map((s, i) => ({ id: `s${i + 1}`, ...s })) }, catalog);
+/** The preset list: the featured few, the rest, and the bouquet each one builds. */
+export class Presets {
+  constructor(private readonly editor: BouquetEditor, readonly all: readonly Preset[] = PRESETS) {}
+
+  /** The ones with their own buttons. */
+  get featured(): readonly Preset[] {
+    return this.all.slice(0, FEATURED_PRESETS);
+  }
+
+  /** The ones behind "Random". */
+  get others(): readonly Preset[] {
+    return this.all.slice(FEATURED_PRESETS);
+  }
+
+  find(id: string): Preset | undefined {
+    return this.all.find((p) => p.id === id);
+  }
+
+  /** The bouquet for a preset, checked like a saved design; null if it uses a flower or colour the catalogue lacks. */
+  build(preset: Preset): Bouquet | null {
+    const stems = preset.groups.flatMap((g) => groupAngles(g).map((angle) => ({
+      flower: g.f, colour: g.c,
+      angle: storedAngle(preset.shape, angle),
+      dist: g.d,
+      height: clamp(DEFAULT_HEIGHT + (g.h ?? 0), -1, 1),
+      tilt: clamp(rad(g.tilt ?? 0), -0.5, 0.5),
+    })));
+    return this.editor.validate({ version: 1, shape: preset.shape, wrap: preset.wrap, stems: stems.map((s, i) => ({ id: `s${i + 1}`, ...s })) });
+  }
 }
