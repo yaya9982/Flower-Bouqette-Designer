@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- Only this site's own code runs. Inline styles are allowed because Vite and the panel's swatches set them;
+         blob: and data: are how Babylon hands model textures to the GPU. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' data: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'" />
+    <title>Bouquet Designer</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <p id="small-screen">This designer needs a larger screen. Please open it on a computer.</p>
+    <main id="app">
+      <canvas id="view" aria-label="3D view of your bouquet. Drag to spin, scroll to zoom."></canvas>
+      <aside id="panel" aria-label="Bouquet options"></aside>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

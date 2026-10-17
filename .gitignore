@@ -1,0 +1,8 @@
+node_modules
+dist
+shots
+__pycache__
+flowers_sources/preset_references
+flowers_sources/
+.impeccable/
+.superpowers/
