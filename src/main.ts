@@ -2,12 +2,12 @@ import { BouquetEditor, BouquetStore, History, type Bouquet } from './bouquet';
 import { Catalog, FLOWERS } from './catalog';
 import { renderPanel, type PanelActions } from './panel';
 import { Presets } from './presets';
-import { createScene } from './scene';
+import { BouquetView } from './scene';
 
 const canvas = document.getElementById('view') as HTMLCanvasElement;
 const panelRoot = document.getElementById('panel') as HTMLElement;
 const catalog = new Catalog(FLOWERS);
-const scene = createScene(canvas, catalog);
+const scene = new BouquetView(canvas, catalog);
 const editor = new BouquetEditor(catalog);
 const store = BouquetStore.browser(editor);
 const presets = new Presets(editor);

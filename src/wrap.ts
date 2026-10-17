@@ -1,4 +1,4 @@
-import { Axis, Color3, Mesh, MeshBuilder, PBRMaterial, Scene, TransformNode, Vector3 } from '@babylonjs/core';
+import { Axis, Color3, Mesh, MeshBuilder, PBRMaterial, Scene, ShadowGenerator, TransformNode, Vector3 } from '@babylonjs/core';
 import type { PaperId, Wrap } from './bouquet';
 import { BINDING, DEFAULT_HEIGHT, SHAPE_OF, TAU, type ShapeId } from './shapes';
 import { PAPER_COLOURS, RIBBON_COLOURS } from './catalog';
@@ -27,7 +27,33 @@ function flatMaterial(scene: Scene, name: string, hex: string, roughness: number
   return m;
 }
 
-export function buildWrap(scene: Scene, wrap: Wrap, shape: ShapeId, radius: number): TransformNode {
+/** The paper and ribbon, rebuilt only when the wrap, shape or size changes. */
+export class WrapView {
+  private node: TransformNode | null = null;
+  private builtFor = '';
+
+  constructor(private readonly scene: Scene, private readonly shadows: ShadowGenerator) {}
+
+  update(wrap: Wrap, shape: ShapeId, radius: number): void {
+    const key = `${JSON.stringify(wrap)}|${shape}|${radius.toFixed(4)}`;
+    if (key === this.builtFor) return;
+    this.node?.dispose(false, true);
+    this.node = buildWrap(this.scene, wrap, shape, radius);
+    for (const mesh of this.node.getChildMeshes()) {
+      mesh.metadata = { wrap: true };
+      this.shadows.addShadowCaster(mesh);
+    }
+    this.builtFor = key;
+  }
+
+  dispose(): void {
+    this.node?.dispose(false, true);
+    this.node = null;
+    this.builtFor = '';
+  }
+}
+
+function buildWrap(scene: Scene, wrap: Wrap, shape: ShapeId, radius: number): TransformNode {
   const root = new TransformNode('wrap', scene);
   const add = (mesh: Mesh, material: PBRMaterial) => {
     mesh.material = material;

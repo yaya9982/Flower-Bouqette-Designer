@@ -1,44 +1,19 @@
 // ponytail: imports the whole Babylon barrel; switch to deep imports if the download size matters.
-import '@babylonjs/loaders/glTF';
 import {
-  ArcRotateCamera, AssetContainer, BackgroundMaterial, Color3, Color4, DirectionalLight, Engine, HDRCubeTexture,
-  HemisphericLight, HighlightLayer, LoadAssetContainerAsync, Matrix, Mesh, MeshBuilder, PBRMaterial, PointerEventTypes, Quaternion, Scene, ShadowGenerator,
+  ArcRotateCamera, BackgroundMaterial, Color3, Color4, DirectionalLight, Engine, HDRCubeTexture, HemisphericLight,
+  HighlightLayer, Matrix, Mesh, MeshBuilder, Observer, PointerEventTypes, PointerInfo, Scene, ShadowGenerator,
   TransformNode, Vector3,
 } from '@babylonjs/core';
 import { Arranger } from './arrange';
 import type { Bouquet } from './bouquet';
-import type { Catalog, FlowerType } from './catalog';
-import { BINDING, SHAPE_OF, TAU, type Pose, type ShapeId, type Vec3 } from './shapes';
-import { buildWrap } from './wrap';
-
-export interface SceneApi {
-  render(bouquet: Bouquet, selectedId: string | null): void;
-  resetView(): void;
-  /** Where a flower's head is on the canvas, in pixels from its top-left corner. */
-  screenPosition(stemId: string): { x: number; y: number } | null;
-  fps(): number;
-  onSelect: (stemId: string | null) => void;
-  onDragMove: (stemId: string, angle: number, dist: number) => void;
-  onDragEnd: () => void;
-}
-
-interface FlowerNode {
-  root: TransformNode;
-  stem: Mesh | null;
-  /** True for a loaded model, whose materials are its own copies and are disposed with it. */
-  isModel: boolean;
-  /** Flower type and colour this node was built for. */
-  look: string;
-  /** Head position and facing this node was last placed at. */
-  placed: string;
-}
+import type { Catalog } from './catalog';
+import { FlowerFactory, FlowerViews, ModelLibrary, v3 } from './flowers';
+import { BINDING, SHAPE_OF, TAU, type ShapeId } from './shapes';
+import { WrapView } from './wrap';
 
 const BACKGROUND = '#f5f3ef';
 const CAMERA_ALPHA = -Math.PI / 2;
 const CAMERA_BETA = 0.95;
-const STEM_COLOUR = '#4f7a3a';
-const CENTRE_COLOUR = '#5a4326';
-const PETALS = 8;
 const HIGHLIGHT_COLOUR = '#2f6fed';
 /** Pixels the mouse may move and still count as a click. */
 const CLICK_SLOP = 4;
@@ -47,179 +22,26 @@ const SURFACE_SPOKES = 48;
 /** The drag surface is cut into this many wedges. Must divide SURFACE_SPOKES. */
 const SURFACE_WEDGES = 12;
 
-const v3 = (p: Vec3) => new Vector3(p.x, p.y, p.z);
+/**
+ * An invisible copy of the bouquet surface, used only to find where the mouse points during a drag.
+ * It is built as separate wedges because Babylon reports one crossing per mesh, and a ray through
+ * the dome crosses it twice (near side and far side).
+ */
+export class DragSurface {
+  private wedges: Mesh[] = [];
+  private builtFor = '';
 
-export function createScene(canvas: HTMLCanvasElement, catalog: Catalog): SceneApi {
-  const arranger = new Arranger(catalog);
-  const engine = new Engine(canvas, true, { stencil: true });
-  const scene = new Scene(engine);
-  scene.clearColor = Color4.FromHexString(`${BACKGROUND}ff`);
+  constructor(private readonly scene: Scene) {}
 
-  const camera = new ArcRotateCamera('camera', CAMERA_ALPHA, CAMERA_BETA, 1.5, new Vector3(0, 0.4, 0), scene);
-  camera.attachControl(canvas, true, false);
-  camera.minZ = 0.01;
-  camera.wheelDeltaPercentage = 0.01;
-  camera.panningSensibility = 0;
-  camera.upperBetaLimit = Math.PI / 2;
-  camera.lowerRadiusLimit = 0.4;
-  camera.upperRadiusLimit = 6;
-
-  scene.environmentTexture = new HDRCubeTexture(`${import.meta.env.BASE_URL}env/studio.hdr`, scene, 256);
-  scene.environmentIntensity = 0.5;
-  const hemi = new HemisphericLight('hemi', new Vector3(0, 1, 0), scene);
-  hemi.intensity = 0.2;
-  const sun = new DirectionalLight('sun', new Vector3(-0.4, -1, 0.5), scene);
-  sun.position = new Vector3(1, 3, -1.5);
-  sun.intensity = 0.6;
-  const shadows = new ShadowGenerator(1024, sun);
-  shadows.useBlurExponentialShadowMap = true;
-  shadows.useKernelBlur = true;
-  shadows.blurKernel = 48;
-
-  const ground = MeshBuilder.CreateGround('ground', { width: 12, height: 12 }, scene);
-  const groundMaterial = new BackgroundMaterial('groundMaterial', scene);
-  // Draws only the shadow, so the floor can never differ from the page background.
-  groundMaterial.shadowOnly = true;
-  groundMaterial.primaryColor = Color3.Black();
-  groundMaterial.alpha = 0.25;
-  ground.material = groundMaterial;
-  ground.receiveShadows = true;
-  ground.isPickable = false;
-
-  const materials = new Map<string, PBRMaterial>();
-  function material(hex: string): PBRMaterial {
-    let m = materials.get(hex);
-    if (!m) {
-      m = new PBRMaterial(`colour-${hex}`, scene);
-      // Hex colours are sRGB; Babylon's PBR colours are linear.
-      m.albedoColor = Color3.FromHexString(hex).toLinearSpace();
-      m.metallic = 0;
-      m.roughness = 0.6;
-      materials.set(hex, m);
-    }
-    return m;
+  get meshes(): readonly Mesh[] {
+    return this.wedges;
   }
 
-  /** A stand-in flower head built from basic shapes. Origin is the head centre; local +Y is where it faces. */
-  function buildPlaceholder(type: FlowerType, hex: string, stemId: string): TransformNode {
-    const root = new TransformNode(`flower-${stemId}`, scene);
-    const r = type.headDiameter / 2;
-    const centre = MeshBuilder.CreateSphere('centre', { diameter: r * 1.1, segments: 12 }, scene);
-    centre.scaling.y = 0.8;
-    centre.material = material(CENTRE_COLOUR);
-    centre.parent = root;
-    for (let i = 0; i < PETALS; i++) {
-      const around = (i / PETALS) * TAU;
-      const petal = MeshBuilder.CreateSphere('petal', { diameter: r, segments: 10 }, scene);
-      petal.scaling = new Vector3(1, 0.55, 0.7);
-      petal.position = new Vector3(Math.cos(around) * r * 0.5, 0, Math.sin(around) * r * 0.5);
-      petal.rotation.y = -around;
-      petal.material = material(hex);
-      petal.parent = root;
-    }
-    for (const mesh of root.getChildMeshes()) {
-      mesh.metadata = { stemId };
-      shadows.addShadowCaster(mesh);
-    }
-    return root;
-  }
-
-  /** Loaded model per flower id. null means the file failed and the stand-in is used. */
-  const models = new Map<string, AssetContainer | null>();
-  const loading = new Set<string>();
-  let lastRender: { bouquet: Bouquet; selectedId: string | null } | null = null;
-
-  function requestModel(type: FlowerType): void {
-    if (!type.model || models.has(type.id) || loading.has(type.id)) return;
-    loading.add(type.id);
-    LoadAssetContainerAsync(`${import.meta.env.BASE_URL}models/${type.model}`, scene)
-      .then((container) => models.set(type.id, container))
-      .catch((error) => {
-        console.warn(`Could not load the ${type.name} model; using the stand-in flower.`, error);
-        models.set(type.id, null);
-      })
-      .finally(() => {
-        loading.delete(type.id);
-        if (lastRender) render(lastRender.bouquet, lastRender.selectedId);
-      });
-  }
-
-  /** A copy of a loaded model, moved and scaled so its head centre is at the origin, facing local +Y. */
-  function buildModel(type: FlowerType, hex: string, stemId: string, container: AssetContainer): TransformNode {
-    const root = new TransformNode(`flower-${stemId}`, scene);
-    const fit = new TransformNode('fit', scene);
-    fit.parent = root;
-    const scale = type.modelScale ?? 1;
-    fit.scaling = new Vector3(scale, scale, scale);
-    fit.position.y = -(type.modelHeadY ?? 0) * scale;
-    // ponytail: each flower gets its own material copies; share one per colour if 40 stems run slowly.
-    // Real copies, not instances: an instance is not drawn unless its source mesh is in the scene, and it shares the
-    // source material, so one flower could not be tinted on its own.
-    const copy = container.instantiateModelsToScene((name) => `${stemId}-${name}`, true, { doNotInstantiate: true });
-    for (const node of copy.rootNodes) node.parent = fit;
-    // The copy's skeletons and animations are not children of the root, so free them with it.
-    root.onDisposeObservable.add(() => copy.dispose());
-    for (const mesh of root.getChildMeshes()) {
-      mesh.metadata = { stemId };
-      shadows.addShadowCaster(mesh);
-      const m = mesh.material;
-      if (type.petalMaterial && m instanceof PBRMaterial && m.name.includes(type.petalMaterial)) {
-        m.albedoColor = Color3.FromHexString(hex).toLinearSpace();
-      }
-    }
-    return root;
-  }
-
-  function buildStem(shape: ShapeId, pose: Pose, stemId: string): Mesh {
-    const foot = v3(SHAPE_OF[shape].stemFoot(pose));
-    const tube = MeshBuilder.CreateTube(`stem-${stemId}`, { path: [foot, v3(BINDING), v3(pose.head)], radius: 0.004, tessellation: 6 }, scene);
-    tube.material = material(STEM_COLOUR);
-    tube.isPickable = false;
-    shadows.addShadowCaster(tube);
-    return tube;
-  }
-
-  const nodes = new Map<string, FlowerNode>();
-  function disposeNode(node: FlowerNode): void {
-    node.root.dispose(false, node.isModel);
-    node.stem?.dispose();
-  }
-
-  const highlight = new HighlightLayer('highlight', scene);
-
-  let highlighted: TransformNode | null = null;
-
-  function applyHighlight(selectedId: string | null): void {
-    const root = (selectedId ? nodes.get(selectedId)?.root : null) ?? null;
-    // Only touch the layer when the outlined flower changes: every addMesh leaves a dispose observer on the mesh.
-    if (root === highlighted) return;
-    highlight.removeAllMeshes();
-    highlighted = root;
-    if (!root) return;
-    for (const mesh of root.getChildMeshes()) highlight.addMesh(mesh as Mesh, Color3.FromHexString(HIGHLIGHT_COLOUR));
-  }
-
-  let currentShape: ShapeId = 'round';
-  let currentSelected: string | null = null;
-  let currentStems: Bouquet['stems'] = [];
-  let currentRadius = 0;
-  /** Height setting of the flower being dragged; the drag surface is built at that height. */
-  let dragHeight = 0;
-  let dragSurface: Mesh[] = [];
-  let dragSurfaceFor = '';
-  let wrapNode: TransformNode | null = null;
-  let wrapFor = '';
-
-  /**
-   * An invisible copy of the bouquet surface, used only to find where the mouse points during a drag.
-   * It is built as separate wedges because Babylon reports one crossing per mesh, and a ray through
-   * the dome crosses it twice (near side and far side).
-   */
-  function updateDragSurface(shape: ShapeId, radius: number, height: number): void {
+  update(shape: ShapeId, radius: number, height: number): void {
     const builtFor = `${shape}|${radius.toFixed(4)}|${height.toFixed(3)}`;
-    if (builtFor === dragSurfaceFor) return;
-    for (const wedge of dragSurface) wedge.dispose();
-    dragSurface = [];
+    if (builtFor === this.builtFor) return;
+    for (const wedge of this.wedges) wedge.dispose();
+    this.wedges = [];
     const perWedge = SURFACE_SPOKES / SURFACE_WEDGES;
     for (let wedge = 0; wedge < SURFACE_WEDGES; wedge++) {
       const rings: Vector3[][] = [];
@@ -231,182 +53,277 @@ export function createScene(canvas: HTMLCanvasElement, catalog: Catalog): SceneA
         }
         rings.push(points);
       }
-      const mesh = MeshBuilder.CreateRibbon('dragSurface', { pathArray: rings, sideOrientation: Mesh.DOUBLESIDE }, scene);
+      const mesh = MeshBuilder.CreateRibbon('dragSurface', { pathArray: rings, sideOrientation: Mesh.DOUBLESIDE }, this.scene);
       mesh.isVisible = false;
-      dragSurface.push(mesh);
+      this.wedges.push(mesh);
     }
-    dragSurfaceFor = builtFor;
+    this.builtFor = builtFor;
   }
 
-  let reach = 0.3;
-  let viewWasSet = false;
-
-  /** Size of the bouquet the view was last fitted to. */
-  let fittedReach = 0;
-
-  /** Aims at the bouquet and steps back far enough to see it all, keeping the viewing direction. */
-  function fitView(alpha = camera.alpha, beta = camera.beta): void {
-    // Frame everything from the floor (which drops for a cascading bouquet) to the top of the dome.
-    const floor = ground.position.y;
-    const top = BINDING.y + reach;
-    // Target first: assigning it makes Babylon recompute alpha, beta and radius from the old position.
-    camera.target = new Vector3(0, (floor + top) / 2, 0);
-    camera.alpha = alpha;
-    camera.beta = beta;
-    camera.radius = (top - floor) * 1.45 + 0.2;
-    fittedReach = reach;
-  }
-
-  function resetView(): void {
-    fitView(CAMERA_ALPHA, CAMERA_BETA);
-    // Stop any spin or zoom still coasting, or it would carry the view away again.
-    camera.inertialAlphaOffset = 0;
-    camera.inertialBetaOffset = 0;
-    camera.inertialRadiusOffset = 0;
-  }
-
-  function render(bouquet: Bouquet, selectedId: string | null): void {
-    lastRender = { bouquet, selectedId };
-    const radius = arranger.surfaceRadius(bouquet.stems);
-    const seen = new Set<string>();
-    let lowest = 0;
-
-    for (const stem of bouquet.stems) {
-      const type = catalog.find(stem.flower);
-      if (!type) continue;
-      seen.add(stem.id);
-      const hex = type.colours.find((c) => c.id === stem.colour)?.hex ?? type.colours[0].hex;
-      requestModel(type);
-      const container = models.get(type.id) ?? null;
-      const look = `${stem.flower}|${stem.colour}|${container ? 'model' : 'stand-in'}`;
-
-      let node = nodes.get(stem.id);
-      if (node && node.look !== look) {
-        disposeNode(node);
-        node = undefined;
-      }
-      if (!node) {
-        const root = container ? buildModel(type, hex, stem.id, container) : buildPlaceholder(type, hex, stem.id);
-        node = { root, stem: null, isModel: container !== null, look, placed: '' };
-        nodes.set(stem.id, node);
-      }
-
-      const pose = SHAPE_OF[bouquet.shape].stemPose(stem, radius);
-      lowest = Math.min(lowest, pose.head.y - type.headDiameter / 2);
-      const placed = [pose.head.x, pose.head.y, pose.head.z, pose.face.x, pose.face.y, pose.face.z].map((n) => n.toFixed(5)).join(',');
-      if (node.placed !== placed) {
-        node.root.position = v3(pose.head);
-        node.root.rotationQuaternion = Quaternion.FromUnitVectorsToRef(Vector3.Up(), v3(pose.face), new Quaternion());
-        node.stem?.dispose();
-        node.stem = buildStem(bouquet.shape, pose, stem.id);
-        node.placed = placed;
-      }
-    }
-
-    for (const [id, node] of nodes) {
-      if (!seen.has(id)) {
-        disposeNode(node);
-        nodes.delete(id);
-      }
-    }
-
-    // A cascading bouquet hangs below its stems; lower the floor so nothing sinks into it.
-    ground.position.y = lowest - 0.01;
-    reach = SHAPE_OF[bouquet.shape].maxReach(radius);
-    currentShape = bouquet.shape;
-    currentSelected = selectedId;
-    currentStems = bouquet.stems;
-    currentRadius = radius;
-    updateDragSurface(bouquet.shape, radius, dragHeight);
-    applyHighlight(selectedId);
-    const wrapKey = `${JSON.stringify(bouquet.wrap)}|${bouquet.shape}|${radius.toFixed(4)}`;
-    if (wrapKey !== wrapFor) {
-      wrapNode?.dispose(false, true);
-      wrapNode = buildWrap(scene, bouquet.wrap, bouquet.shape, radius);
-      for (const mesh of wrapNode.getChildMeshes()) {
-        mesh.metadata = { wrap: true };
-        shadows.addShadowCaster(mesh);
-      }
-      wrapFor = wrapKey;
-    }
-    if (!viewWasSet) {
-      resetView();
-      viewWasSet = true;
-    } else if (Math.abs(reach - fittedReach) > fittedReach * 0.12) {
-      // The bouquet has grown or shrunk enough to leave the frame or get lost in it.
-      fitView();
-    }
-  }
-
-  function screenPosition(stemId: string): { x: number; y: number } | null {
-    const node = nodes.get(stemId);
-    if (!node) return null;
-    const viewport = camera.viewport.toGlobal(engine.getRenderWidth(), engine.getRenderHeight());
-    const p = Vector3.Project(node.root.position, Matrix.Identity(), scene.getTransformMatrix(), viewport);
-    return { x: p.x, y: p.y };
-  }
-
-  engine.runRenderLoop(() => scene.render());
-  window.addEventListener('resize', () => engine.resize());
-
-  const api: SceneApi = {
-    render,
-    resetView,
-    screenPosition,
-    fps: () => engine.getFps(),
-    onSelect: () => {},
-    onDragMove: () => {},
-    onDragEnd: () => {},
-  };
-
-  let press: { x: number; y: number; stemId: string | null; canDrag: boolean; dragging: boolean; wandered: boolean } | null = null;
-
-  function stemUnderPointer(): string | null {
-    // The paper and ribbon take part so they hide the flowers behind them; hitting them counts as empty space.
-    const hit = scene.pick(scene.pointerX, scene.pointerY, (mesh) => Boolean(mesh.metadata?.stemId || mesh.metadata?.wrap));
-    return hit?.hit && hit.pickedMesh ? ((hit.pickedMesh.metadata.stemId as string | undefined) ?? null) : null;
-  }
-
-  /** Where the mouse points on the drag surface. The ray can cross the dome twice; take the crossing nearest the flower. */
-  function dragPoint(stemId: string): Vector3 | null {
-    const from = nodes.get(stemId)?.root.position;
+  /** Where the pointer at (x, y) meets the surface. The ray can cross the dome twice; take the crossing nearest `from`. */
+  pick(x: number, y: number, from: Vector3 | undefined): Vector3 | null {
     let best: Vector3 | null = null;
-    for (const hit of scene.multiPick(scene.pointerX, scene.pointerY, (mesh) => dragSurface.includes(mesh as Mesh)) ?? []) {
+    for (const hit of this.scene.multiPick(x, y, (mesh) => this.wedges.includes(mesh as Mesh)) ?? []) {
       const at = hit.pickedPoint;
       if (at && (!best || !from || Vector3.DistanceSquared(at, from) < Vector3.DistanceSquared(best, from))) best = at;
     }
     return best;
   }
 
-  scene.onPointerObservable.add((info) => {
+  dispose(): void {
+    for (const wedge of this.wedges) wedge.dispose();
+    this.wedges = [];
+    this.builtFor = '';
+  }
+}
+
+/** The orbit camera, and how it frames the bouquet. */
+export class CameraRig {
+  readonly camera: ArcRotateCamera;
+  private reach = 0.3;
+  private floor = 0;
+  private viewWasSet = false;
+  /** Size of the bouquet the view was last fitted to. */
+  private fittedReach = 0;
+
+  constructor(scene: Scene, private readonly canvas: HTMLCanvasElement) {
+    const camera = new ArcRotateCamera('camera', CAMERA_ALPHA, CAMERA_BETA, 1.5, new Vector3(0, 0.4, 0), scene);
+    this.camera = camera;
+    this.attach();
+    camera.minZ = 0.01;
+    camera.wheelDeltaPercentage = 0.01;
+    camera.panningSensibility = 0;
+    camera.upperBetaLimit = Math.PI / 2;
+    camera.lowerRadiusLimit = 0.4;
+    camera.upperRadiusLimit = 6;
+  }
+
+  /** Frames a bouquet of this reach above this floor: fully the first time, then only once its size has changed enough. */
+  follow(reach: number, floor: number): void {
+    this.reach = reach;
+    this.floor = floor;
+    if (!this.viewWasSet) {
+      this.resetView();
+      this.viewWasSet = true;
+    } else if (Math.abs(reach - this.fittedReach) > this.fittedReach * 0.12) {
+      // The bouquet has grown or shrunk enough to leave the frame or get lost in it.
+      this.fit();
+    }
+  }
+
+  resetView(): void {
+    this.fit(CAMERA_ALPHA, CAMERA_BETA);
+    // Stop any spin or zoom still coasting, or it would carry the view away again.
+    this.camera.inertialAlphaOffset = 0;
+    this.camera.inertialBetaOffset = 0;
+    this.camera.inertialRadiusOffset = 0;
+  }
+
+  attach(): void {
+    this.camera.attachControl(this.canvas, true, false);
+  }
+
+  detach(): void {
+    this.camera.detachControl();
+  }
+
+  dispose(): void {
+    this.detach();
+    this.camera.dispose();
+  }
+
+  /** Aims at the bouquet and steps back far enough to see it all, keeping the viewing direction. */
+  private fit(alpha = this.camera.alpha, beta = this.camera.beta): void {
+    const camera = this.camera;
+    // Frame everything from the floor (which drops for a cascading bouquet) to the top of the dome.
+    const top = BINDING.y + this.reach;
+    // Target first: assigning it makes Babylon recompute alpha, beta and radius from the old position.
+    camera.target = new Vector3(0, (this.floor + top) / 2, 0);
+    camera.alpha = alpha;
+    camera.beta = beta;
+    camera.radius = (top - this.floor) * 1.45 + 0.2;
+    this.fittedReach = this.reach;
+  }
+}
+
+interface Press { x: number; y: number; stemId: string | null; canDrag: boolean; dragging: boolean; wandered: boolean }
+
+/** The 3D view of a bouquet: draws it, and reports clicks and drags on its flowers. */
+export class BouquetView {
+  onSelect: (stemId: string | null) => void = () => {};
+  onDragMove: (stemId: string, angle: number, dist: number) => void = () => {};
+  onDragEnd: () => void = () => {};
+
+  private readonly arranger: Arranger;
+  private readonly engine: Engine;
+  private readonly scene: Scene;
+  private readonly rig: CameraRig;
+  private readonly ground: Mesh;
+  private readonly factory: FlowerFactory;
+  private readonly models: ModelLibrary;
+  private readonly flowers: FlowerViews;
+  private readonly highlight: HighlightLayer;
+  private readonly drag: DragSurface;
+  private readonly wrap: WrapView;
+  private readonly pointerObserver: Observer<PointerInfo>;
+
+  private lastRender: { bouquet: Bouquet; selectedId: string | null } | null = null;
+  private highlighted: TransformNode | null = null;
+  private currentShape: ShapeId = 'round';
+  private currentSelected: string | null = null;
+  private currentStems: Bouquet['stems'] = [];
+  private currentRadius = 0;
+  /** Height setting of the flower being dragged; the drag surface is built at that height. */
+  private dragHeight = 0;
+  private press: Press | null = null;
+
+  constructor(canvas: HTMLCanvasElement, catalog: Catalog) {
+    this.arranger = new Arranger(catalog);
+    const engine = new Engine(canvas, true, { stencil: true });
+    const scene = new Scene(engine);
+    this.engine = engine;
+    this.scene = scene;
+    scene.clearColor = Color4.FromHexString(`${BACKGROUND}ff`);
+
+    this.rig = new CameraRig(scene, canvas);
+
+    scene.environmentTexture = new HDRCubeTexture(`${import.meta.env.BASE_URL}env/studio.hdr`, scene, 256);
+    scene.environmentIntensity = 0.5;
+    const hemi = new HemisphericLight('hemi', new Vector3(0, 1, 0), scene);
+    hemi.intensity = 0.2;
+    const sun = new DirectionalLight('sun', new Vector3(-0.4, -1, 0.5), scene);
+    sun.position = new Vector3(1, 3, -1.5);
+    sun.intensity = 0.6;
+    const shadows = new ShadowGenerator(1024, sun);
+    shadows.useBlurExponentialShadowMap = true;
+    shadows.useKernelBlur = true;
+    shadows.blurKernel = 48;
+
+    const ground = MeshBuilder.CreateGround('ground', { width: 12, height: 12 }, scene);
+    const groundMaterial = new BackgroundMaterial('groundMaterial', scene);
+    // Draws only the shadow, so the floor can never differ from the page background.
+    groundMaterial.shadowOnly = true;
+    groundMaterial.primaryColor = Color3.Black();
+    groundMaterial.alpha = 0.25;
+    ground.material = groundMaterial;
+    ground.receiveShadows = true;
+    ground.isPickable = false;
+    this.ground = ground;
+
+    this.factory = new FlowerFactory(scene, shadows);
+    // A model that finishes loading redraws whatever was last shown, which may be a draft.
+    this.models = new ModelLibrary(scene, () => {
+      if (this.lastRender) this.render(this.lastRender.bouquet, this.lastRender.selectedId);
+    });
+    this.flowers = new FlowerViews(this.factory, this.models, catalog);
+    this.highlight = new HighlightLayer('highlight', scene);
+    this.drag = new DragSurface(scene);
+    this.wrap = new WrapView(scene, shadows);
+
+    engine.runRenderLoop(this.draw);
+    window.addEventListener('resize', this.onResize);
+    this.pointerObserver = scene.onPointerObservable.add(this.onPointer);
+  }
+
+  render(bouquet: Bouquet, selectedId: string | null): void {
+    this.lastRender = { bouquet, selectedId };
+    const radius = this.arranger.surfaceRadius(bouquet.stems);
+    const lowest = this.flowers.sync(bouquet, radius);
+
+    // A cascading bouquet hangs below its stems; lower the floor so nothing sinks into it.
+    this.ground.position.y = lowest - 0.01;
+    const reach = SHAPE_OF[bouquet.shape].maxReach(radius);
+    this.currentShape = bouquet.shape;
+    this.currentSelected = selectedId;
+    this.currentStems = bouquet.stems;
+    this.currentRadius = radius;
+    this.drag.update(bouquet.shape, radius, this.dragHeight);
+    this.applyHighlight(selectedId);
+    this.wrap.update(bouquet.wrap, bouquet.shape, radius);
+    this.rig.follow(reach, this.ground.position.y);
+  }
+
+  resetView(): void {
+    this.rig.resetView();
+  }
+
+  /** Where a flower's head is on the canvas, in pixels from its top-left corner. */
+  screenPosition(stemId: string): { x: number; y: number } | null {
+    const root = this.flowers.root(stemId);
+    if (!root) return null;
+    const viewport = this.rig.camera.viewport.toGlobal(this.engine.getRenderWidth(), this.engine.getRenderHeight());
+    const p = Vector3.Project(root.position, Matrix.Identity(), this.scene.getTransformMatrix(), viewport);
+    return { x: p.x, y: p.y };
+  }
+
+  fps(): number {
+    return this.engine.getFps();
+  }
+
+  dispose(): void {
+    this.scene.onPointerObservable.remove(this.pointerObserver);
+    window.removeEventListener('resize', this.onResize);
+    this.engine.stopRenderLoop(this.draw);
+    this.rig.detach();
+    // Flower copies go before the models they were copied from.
+    this.flowers.dispose();
+    this.models.dispose();
+    this.drag.dispose();
+    this.wrap.dispose();
+    this.highlight.dispose();
+    this.factory.dispose();
+    this.scene.dispose();
+    this.engine.dispose();
+  }
+
+  private readonly draw = () => this.scene.render();
+  private readonly onResize = () => this.engine.resize();
+
+  private applyHighlight(selectedId: string | null): void {
+    const root = (selectedId ? this.flowers.root(selectedId) : null) ?? null;
+    // Only touch the layer when the outlined flower changes: every addMesh leaves a dispose observer on the mesh.
+    if (root === this.highlighted) return;
+    this.highlight.removeAllMeshes();
+    this.highlighted = root;
+    if (!root) return;
+    for (const mesh of root.getChildMeshes()) this.highlight.addMesh(mesh as Mesh, Color3.FromHexString(HIGHLIGHT_COLOUR));
+  }
+
+  private stemUnderPointer(): string | null {
+    // The paper and ribbon take part so they hide the flowers behind them; hitting them counts as empty space.
+    const hit = this.scene.pick(this.scene.pointerX, this.scene.pointerY, (mesh) => Boolean(mesh.metadata?.stemId || mesh.metadata?.wrap));
+    return hit?.hit && hit.pickedMesh ? ((hit.pickedMesh.metadata.stemId as string | undefined) ?? null) : null;
+  }
+
+  private readonly onPointer = (info: PointerInfo) => {
+    const scene = this.scene;
     const isLeft = (info.event as PointerEvent).button === 0;
     if (info.type === PointerEventTypes.POINTERDOWN) {
       // Only the left button, and never a second press while one is held.
-      if (!isLeft || press) return;
-      const stemId = stemUnderPointer();
-      const canDrag = stemId !== null && stemId === currentSelected;
-      press = { x: scene.pointerX, y: scene.pointerY, stemId, canDrag, dragging: false, wandered: false };
+      if (!isLeft || this.press) return;
+      const stemId = this.stemUnderPointer();
+      const canDrag = stemId !== null && stemId === this.currentSelected;
+      this.press = { x: scene.pointerX, y: scene.pointerY, stemId, canDrag, dragging: false, wandered: false };
       if (canDrag) {
-        camera.detachControl();
-        dragHeight = currentStems.find((s) => s.id === stemId)?.height ?? 0;
-        updateDragSurface(currentShape, currentRadius, dragHeight);
+        this.rig.detach();
+        this.dragHeight = this.currentStems.find((s) => s.id === stemId)?.height ?? 0;
+        this.drag.update(this.currentShape, this.currentRadius, this.dragHeight);
       }
-    } else if (info.type === PointerEventTypes.POINTERMOVE && press) {
+    } else if (info.type === PointerEventTypes.POINTERMOVE && this.press) {
+      const press = this.press;
       if (Math.hypot(scene.pointerX - press.x, scene.pointerY - press.y) >= CLICK_SLOP) press.wandered = true;
       if (!press.canDrag || !press.stemId || !press.wandered) return;
       press.dragging = true;
-      const point = dragPoint(press.stemId);
+      const point = this.drag.pick(scene.pointerX, scene.pointerY, this.flowers.root(press.stemId)?.position);
       if (point) {
-        const at = SHAPE_OF[currentShape].surfaceFromPoint(point, currentRadius);
-        api.onDragMove(press.stemId, at.angle, at.dist);
+        const at = SHAPE_OF[this.currentShape].surfaceFromPoint(point, this.currentRadius);
+        this.onDragMove(press.stemId, at.angle, at.dist);
       }
-    } else if (info.type === PointerEventTypes.POINTERUP && press && isLeft) {
-      if (press.canDrag) camera.attachControl(canvas, true, false);
-      if (press.dragging) api.onDragEnd();
-      else if (!press.wandered) api.onSelect(press.stemId);
-      press = null;
+    } else if (info.type === PointerEventTypes.POINTERUP && this.press && isLeft) {
+      if (this.press.canDrag) this.rig.attach();
+      if (this.press.dragging) this.onDragEnd();
+      else if (!this.press.wandered) this.onSelect(this.press.stemId);
+      this.press = null;
     }
-  });
-
-  return api;
+  };
 }
