@@ -1,6 +1,6 @@
 import { MAX_STEMS, MIN_STEMS, type Bouquet, type PaperId, type ShapeId, type Wrap } from './bouquet';
 import { PAPER_COLOURS, RIBBON_COLOURS, type Catalog, type FlowerType, type NamedColour } from './catalog';
-import { FEATURED_PRESETS, PRESETS } from './presets';
+import type { Preset, Presets } from './presets';
 import { SHAPE_OF, SHAPES } from './shapes';
 
 /**
@@ -108,35 +108,6 @@ function pressable(node: SVGElement, onPress: () => void): SVGElement {
   return node;
 }
 
-/** Which colour the flower list is narrowed to. A viewing choice, not part of the design, so it is not saved or undone. */
-let colourFilter: string | null = null;
-/** Whether the list of the other presets is showing. Also a viewing choice. */
-let presetListOpen = false;
-
-function presetSection(rerender: () => void, actions: PanelActions): HTMLElement {
-  const featured = PRESETS.slice(0, FEATURED_PRESETS);
-  const others = PRESETS.slice(FEATURED_PRESETS);
-  const presetButton = (p: (typeof PRESETS)[number], cls: string) =>
-    button(`preset-${p.id}`, p.name, () => actions.loadPreset(p.id), { class: cls, title: `${p.occasion}. ${p.evidence}` });
-  const random = button('preset-random', RANDOM_OPENS_LIST ? (presetListOpen ? 'Random ▴' : 'Random ▾') : 'Random', () => {
-    if (!RANDOM_OPENS_LIST) {
-      actions.loadPreset(others[Math.floor(Math.random() * others.length)].id);
-      return;
-    }
-    presetListOpen = !presetListOpen;
-    rerender();
-  }, { class: 'preset', 'aria-expanded': String(RANDOM_OPENS_LIST && presetListOpen) });
-  const list = RANDOM_OPENS_LIST && presetListOpen
-    ? [el('div', { class: 'preset-list', role: 'list', 'aria-label': 'More presets' },
-      ...others.map((p) => el('div', { role: 'listitem' }, presetButton(p, 'preset-option'), el('small', {}, p.occasion))))]
-    : [];
-  return section('Presets',
-    el('p', { class: 'hint' }, 'Start from a favourite bouquet. Replaces the current design; Undo brings it back.'),
-    el('div', { class: 'presets' }, ...featured.map((p) => presetButton(p, 'preset')), random),
-    ...list,
-  );
-}
-
 const flowerLabel = (type: FlowerType) => (type.title ? `${type.name} – ${type.title}` : type.name);
 const plural = (n: number) => `${n} flower${n === 1 ? '' : 's'}`;
 
@@ -181,89 +152,128 @@ function colourWheel(families: { colour: NamedColour; count: number }[], total: 
     svg('defs', {}, mixed), ...wedges, hub);
 }
 
-export function renderPanel(root: HTMLElement, state: PanelState, catalog: Catalog, actions: PanelActions): void {
-  const { bouquet, selectedId } = state;
-  const focusedKey = (document.activeElement as HTMLElement | SVGElement | null)?.dataset?.key;
-  const listScroll = root.querySelector('.flower-list')?.scrollTop ?? 0;
-  const total = bouquet.stems.length;
-  const full = total >= MAX_STEMS;
-  const name = (type: FlowerType) => el('span', { class: 'name' }, type.name, ...(type.title ? [el('small', {}, type.title)] : []));
+/** The side panel. It is rebuilt from scratch on every render, keeping focus and the flower list's scroll position. */
+export class Panel {
+  /** Which colour the flower list is narrowed to. A viewing choice, not part of the design, so it is not saved or undone. */
+  private colourFilter: string | null = null;
+  /** Whether the list of the other presets is showing. Also a viewing choice. */
+  private presetListOpen = false;
 
-  // Only the flowers in the bouquet, in the order they were first added.
-  const inBouquet = [...new Set(bouquet.stems.map((s) => s.flower))].flatMap((id) => catalog.find(id) ?? []);
-  const bouquetRows = inBouquet.map((type) => {
-    const count = bouquet.stems.filter((s) => s.flower === type.id).length;
-    const label = flowerLabel(type);
-    return el('div', { class: 'row' },
+  constructor(private readonly root: HTMLElement, private readonly catalog: Catalog, private readonly presets: Presets) {}
+
+  render(state: PanelState, actions: PanelActions): void {
+    const { root, catalog } = this;
+    const { bouquet, selectedId } = state;
+    const focusedKey = (document.activeElement as HTMLElement | SVGElement | null)?.dataset?.key;
+    const listScroll = root.querySelector('.flower-list')?.scrollTop ?? 0;
+    const total = bouquet.stems.length;
+    const full = total >= MAX_STEMS;
+    const name = (type: FlowerType) => el('span', { class: 'name' }, type.name, ...(type.title ? [el('small', {}, type.title)] : []));
+
+    // Only the flowers in the bouquet, in the order they were first added.
+    const inBouquet = [...new Set(bouquet.stems.map((s) => s.flower))].flatMap((id) => catalog.find(id) ?? []);
+    const bouquetRows = inBouquet.map((type) => {
+      const count = bouquet.stems.filter((s) => s.flower === type.id).length;
+      const label = flowerLabel(type);
+      return el('div', { class: 'row' },
+        name(type),
+        button(`minus-${type.id}`, '−', () => actions.removeOne(type.id), { class: 'step', 'aria-label': `Remove one ${label}` }, total <= MIN_STEMS),
+        el('span', { class: 'count', 'aria-label': `${count} ${label}` }, String(count)),
+        button(`more-${type.id}`, '+', () => actions.add(type.id), { class: 'step', 'aria-label': `Add one more ${label}` }, full),
+      );
+    });
+
+    // The wheel offers only colours some flower comes in. A filter left on a colour that has gone is dropped.
+    const families = catalog.families();
+    if (!families.some((f) => f.colour.id === this.colourFilter)) this.colourFilter = null;
+    const colourFilter = this.colourFilter;
+    const offered = catalog.flowers
+      .filter((f) => colourFilter === null || f.colours.some((c) => c.id === colourFilter))
+      .sort((a, b) => a.name.localeCompare(b.name) || (a.title ?? '').localeCompare(b.title ?? ''));
+    const addRows = offered.map((type) => el('div', { class: 'row', role: 'listitem' },
       name(type),
-      button(`minus-${type.id}`, '−', () => actions.removeOne(type.id), { class: 'step', 'aria-label': `Remove one ${label}` }, total <= MIN_STEMS),
-      el('span', { class: 'count', 'aria-label': `${count} ${label}` }, String(count)),
-      button(`more-${type.id}`, '+', () => actions.add(type.id), { class: 'step', 'aria-label': `Add one more ${label}` }, full),
-    );
-  });
-
-  // The wheel offers only colours some flower comes in. A filter left on a colour that has gone is dropped.
-  const families = catalog.families();
-  if (!families.some((f) => f.colour.id === colourFilter)) colourFilter = null;
-  const offered = catalog.flowers
-    .filter((f) => colourFilter === null || f.colours.some((c) => c.id === colourFilter))
-    .sort((a, b) => a.name.localeCompare(b.name) || (a.title ?? '').localeCompare(b.title ?? ''));
-  const addRows = offered.map((type) => el('div', { class: 'row', role: 'listitem' },
-    name(type),
-    button(`plus-${type.id}`, '+', () => actions.add(type.id, colourFilter ?? undefined), { class: 'step', 'aria-label': `Add one ${flowerLabel(type)}` }, full),
-  ));
-  const pickColour = (id: string | null) => {
-    colourFilter = id;
-    renderPanel(root, state, catalog, actions);
-    // A different list: start it from the top.
-    const list = root.querySelector('.flower-list');
-    if (list) list.scrollTop = 0;
-  };
-
-  const sections: HTMLElement[] = [
-    presetSection(() => renderPanel(root, state, catalog, actions), actions),
-    section('Your bouquet', ...bouquetRows, el('p', { class: 'row' }, `${total} of ${MAX_STEMS} flowers`)),
-    section('Add flowers',
-      el('p', { class: 'hint' }, 'Pick a colour on the wheel to narrow the list.'),
-      colourWheel(families, catalog.flowers.length, colourFilter, pickColour),
-      el('div', { class: 'flower-list', role: 'list', 'aria-label': 'Flowers to add' }, ...addRows),
-    ),
-    section('Shape',
-      select('shape', 'Bouquet shape', SHAPES.map((id) => ({ id, name: SHAPE_OF[id].label })), bouquet.shape, (id) => actions.setShape(id as ShapeId)),
-    ),
-    section('Wrapping',
-      select('paper', 'Paper', (Object.keys(PAPER_NAMES) as PaperId[]).map((id) => ({ id, name: PAPER_NAMES[id] })), bouquet.wrap.paper, (id) => actions.setWrap({ paper: id as PaperId })),
-      swatches('paper-colour', 'Paper colour', PAPER_COLOURS, bouquet.wrap.paperColour, (id) => actions.setWrap({ paperColour: id })),
-      swatches('ribbon-colour', 'Ribbon colour', RIBBON_COLOURS, bouquet.wrap.ribbonColour, (id) => actions.setWrap({ ribbonColour: id })),
-    ),
-  ];
-
-  const stem = bouquet.stems.find((s) => s.id === selectedId);
-  const type = stem && catalog.find(stem.flower);
-  if (stem && type) {
-    sections.push(section(`Selected: ${flowerLabel(type)}`,
-      swatches('flower-colour', 'Colour', type.colours, stem.colour, (id) => actions.recolour(id)),
-      slider('height', 'Height', -1, 1, stem.height, (v) => actions.previewAdjust({ height: v }), (v) => actions.adjust({ height: v })),
-      slider('tilt', 'Tilt', -0.5, 0.5, stem.tilt, (v) => actions.previewAdjust({ tilt: v }), (v) => actions.adjust({ tilt: v })),
-      select('swap', 'Swap for', catalog.flowers.map((f) => ({ id: f.id, name: flowerLabel(f) })), stem.flower, (id) => actions.swap(id)),
-      button('remove', 'Remove this flower', () => actions.remove(), { class: 'danger' }, total <= MIN_STEMS),
+      button(`plus-${type.id}`, '+', () => actions.add(type.id, colourFilter ?? undefined), { class: 'step', 'aria-label': `Add one ${flowerLabel(type)}` }, full),
     ));
-  } else {
-    sections.push(section('Selected flower', el('p', {}, 'Click a flower in the 3D view to change it.')));
+    const pickColour = (id: string | null) => {
+      this.colourFilter = id;
+      this.render(state, actions);
+      // A different list: start it from the top.
+      const list = root.querySelector('.flower-list');
+      if (list) list.scrollTop = 0;
+    };
+
+    const sections: HTMLElement[] = [
+      this.presetSection(() => this.render(state, actions), actions),
+      section('Your bouquet', ...bouquetRows, el('p', { class: 'row' }, `${total} of ${MAX_STEMS} flowers`)),
+      section('Add flowers',
+        el('p', { class: 'hint' }, 'Pick a colour on the wheel to narrow the list.'),
+        colourWheel(families, catalog.flowers.length, colourFilter, pickColour),
+        el('div', { class: 'flower-list', role: 'list', 'aria-label': 'Flowers to add' }, ...addRows),
+      ),
+      section('Shape',
+        select('shape', 'Bouquet shape', SHAPES.map((id) => ({ id, name: SHAPE_OF[id].label })), bouquet.shape, (id) => actions.setShape(id as ShapeId)),
+      ),
+      section('Wrapping',
+        select('paper', 'Paper', (Object.keys(PAPER_NAMES) as PaperId[]).map((id) => ({ id, name: PAPER_NAMES[id] })), bouquet.wrap.paper, (id) => actions.setWrap({ paper: id as PaperId })),
+        swatches('paper-colour', 'Paper colour', PAPER_COLOURS, bouquet.wrap.paperColour, (id) => actions.setWrap({ paperColour: id })),
+        swatches('ribbon-colour', 'Ribbon colour', RIBBON_COLOURS, bouquet.wrap.ribbonColour, (id) => actions.setWrap({ ribbonColour: id })),
+      ),
+    ];
+
+    const stem = bouquet.stems.find((s) => s.id === selectedId);
+    const type = stem && catalog.find(stem.flower);
+    if (stem && type) {
+      sections.push(section(`Selected: ${flowerLabel(type)}`,
+        swatches('flower-colour', 'Colour', type.colours, stem.colour, (id) => actions.recolour(id)),
+        slider('height', 'Height', -1, 1, stem.height, (v) => actions.previewAdjust({ height: v }), (v) => actions.adjust({ height: v })),
+        slider('tilt', 'Tilt', -0.5, 0.5, stem.tilt, (v) => actions.previewAdjust({ tilt: v }), (v) => actions.adjust({ tilt: v })),
+        select('swap', 'Swap for', catalog.flowers.map((f) => ({ id: f.id, name: flowerLabel(f) })), stem.flower, (id) => actions.swap(id)),
+        button('remove', 'Remove this flower', () => actions.remove(), { class: 'danger' }, total <= MIN_STEMS),
+      ));
+    } else {
+      sections.push(section('Selected flower', el('p', {}, 'Click a flower in the 3D view to change it.')));
+    }
+
+    sections.push(section('Actions', el('div', { class: 'actions' },
+      button('undo', 'Undo', () => actions.undo(), {}, !state.canUndo),
+      button('redo', 'Redo', () => actions.redo(), {}, !state.canRedo),
+      button('rearrange', 'Re-arrange', () => actions.rearrange()),
+      button('reset-view', 'Reset view', () => actions.resetView()),
+    )));
+
+    sections.push(section('About', el('a', { href: `${import.meta.env.BASE_URL}credits.html` }, 'Model credits')));
+
+    root.replaceChildren(...sections);
+    // The list is rebuilt on every change; keep it where the user had scrolled to.
+    const list = root.querySelector('.flower-list');
+    if (list) list.scrollTop = listScroll;
+    if (focusedKey) root.querySelector<HTMLElement | SVGElement>(`[data-key="${focusedKey}"]`)?.focus();
   }
 
-  sections.push(section('Actions', el('div', { class: 'actions' },
-    button('undo', 'Undo', () => actions.undo(), {}, !state.canUndo),
-    button('redo', 'Redo', () => actions.redo(), {}, !state.canRedo),
-    button('rearrange', 'Re-arrange', () => actions.rearrange()),
-    button('reset-view', 'Reset view', () => actions.resetView()),
-  )));
+  dispose(): void {
+    this.root.replaceChildren();
+  }
 
-  sections.push(section('About', el('a', { href: `${import.meta.env.BASE_URL}credits.html` }, 'Model credits')));
-
-  root.replaceChildren(...sections);
-  // The list is rebuilt on every change; keep it where the user had scrolled to.
-  const list = root.querySelector('.flower-list');
-  if (list) list.scrollTop = listScroll;
-  if (focusedKey) root.querySelector<HTMLElement | SVGElement>(`[data-key="${focusedKey}"]`)?.focus();
+  private presetSection(rerender: () => void, actions: PanelActions): HTMLElement {
+    const { featured, others } = this.presets;
+    const presetButton = (p: Preset, cls: string) =>
+      button(`preset-${p.id}`, p.name, () => actions.loadPreset(p.id), { class: cls, title: `${p.occasion}. ${p.evidence}` });
+    const random = button('preset-random', RANDOM_OPENS_LIST ? (this.presetListOpen ? 'Random ▴' : 'Random ▾') : 'Random', () => {
+      if (!RANDOM_OPENS_LIST) {
+        actions.loadPreset(others[Math.floor(Math.random() * others.length)].id);
+        return;
+      }
+      this.presetListOpen = !this.presetListOpen;
+      rerender();
+    }, { class: 'preset', 'aria-expanded': String(RANDOM_OPENS_LIST && this.presetListOpen) });
+    const list = RANDOM_OPENS_LIST && this.presetListOpen
+      ? [el('div', { class: 'preset-list', role: 'list', 'aria-label': 'More presets' },
+        ...others.map((p) => el('div', { role: 'listitem' }, presetButton(p, 'preset-option'), el('small', {}, p.occasion))))]
+      : [];
+    return section('Presets',
+      el('p', { class: 'hint' }, 'Start from a favourite bouquet. Replaces the current design; Undo brings it back.'),
+      el('div', { class: 'presets' }, ...featured.map((p) => presetButton(p, 'preset')), random),
+      ...list,
+    );
+  }
 }
