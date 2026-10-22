@@ -2,7 +2,7 @@
 import {
   ArcRotateCamera, BackgroundMaterial, Color3, Color4, DirectionalLight, Engine, HDRCubeTexture, HemisphericLight,
   HighlightLayer, Matrix, Mesh, MeshBuilder, Observer, PointerEventTypes, PointerInfo, Scene, ShadowGenerator,
-  TransformNode, Vector3,
+  Tools, TransformNode, Vector3,
 } from '@babylonjs/core';
 import { Arranger } from './arrange';
 import type { Bouquet } from './bouquet';
@@ -258,6 +258,11 @@ export class BouquetView {
 
   fps(): number {
     return this.engine.getFps();
+  }
+
+  /** A PNG data URL of the bouquet as the customer sees it now, for the order and the florist. */
+  snapshot(): Promise<string> {
+    return Tools.CreateScreenshotAsync(this.engine, this.rig.camera, { width: 800, height: 800 }, 'image/png');
   }
 
   dispose(): void {

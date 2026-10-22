@@ -7,3 +7,5 @@ flowers_sources/
 .impeccable/
 .superpowers/
 shots/
+.env
+server/data/

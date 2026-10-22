@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- Only this site's own code runs; order pictures arrive as blob: URLs. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+    <title>Florist Orders</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/src/board.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Orders</h1>
+      <form id="key-form">
+        <label for="key">Florist key</label>
+        <input id="key" type="password" autocomplete="current-password" required />
+        <button type="submit">Open</button>
+      </form>
+      <p id="status" role="status"></p>
+    </header>
+    <main id="orders" aria-live="polite"></main>
+    <script type="module" src="/src/board.ts"></script>
+  </body>
+</html>

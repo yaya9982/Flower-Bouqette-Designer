@@ -126,6 +126,21 @@ describe('Designer', () => {
     expect(calls.slice(-2)).toEqual(['view.dispose', 'panel.dispose']);
   });
 
+  it('applyEdit records one undo step for a change made outside the panel', () => {
+    const { designer, history } = setup();
+    const before = history.present.stems.length;
+    designer.applyEdit((b) => editor.add(editor.add(b, 'rose'), 'rose'));
+    expect(history.present.stems.length).toBe(before + 2);
+    designer.undo();
+    expect(history.present.stems.length).toBe(before);
+  });
+
+  it('applyEdit that changes nothing records no undo step', () => {
+    const { designer, history } = setup();
+    designer.applyEdit((b) => b);
+    expect(history.past.length).toBe(0);
+  });
+
   it('every refresh saves the design', () => {
     const { designer, saved, history } = setup();
     designer.add('tulip');

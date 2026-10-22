@@ -59,6 +59,8 @@ export class Designer implements PanelActions {
   undo(): void { this.parts.history.undo(); this.refresh(); }
   redo(): void { this.parts.history.redo(); this.refresh(); }
   rearrange(): void { this.apply(this.parts.editor.rearrange(this.present)); }
+  /** A change worked out elsewhere (the AI florist's tools): one undo step, or none if it changed nothing. */
+  applyEdit(change: (b: Bouquet) => Bouquet): void { this.apply(change(this.present)); }
   resetView(): void { this.parts.view.resetView(); }
 
   loadPreset(presetId: string): void {

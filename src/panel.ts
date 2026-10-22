@@ -1,6 +1,7 @@
 import { MAX_STEMS, MIN_STEMS, type Bouquet, type PaperId, type ShapeId, type Wrap } from './bouquet';
 import { PAPER_COLOURS, RIBBON_COLOURS, type Catalog, type FlowerType, type NamedColour } from './catalog';
 import type { Preset, Presets } from './presets';
+import { formatCents, priceBouquet } from './pricing';
 import { SHAPE_OF, SHAPES } from './shapes';
 
 /**
@@ -203,6 +204,7 @@ export class Panel {
     };
 
     const sections: HTMLElement[] = [
+      el('p', { class: 'price', 'data-key': 'price-total' }, `Total $${formatCents(priceBouquet(bouquet, catalog).totalCents)}`),
       this.presetSection(() => this.render(state, actions), actions),
       section('Your bouquet', ...bouquetRows, el('p', { class: 'row' }, `${total} of ${MAX_STEMS} flowers`)),
       section('Add flowers',
