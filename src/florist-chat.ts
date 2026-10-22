@@ -1,8 +1,8 @@
 import type { Designer } from './designer';
 import type { FloristTools, ToolResult } from './florist-tools';
+import { GeminiFlorist, type Reply } from './florist-gemini';
 
-interface ToolCall { id: string; name: string; input: unknown }
-interface Reply { sessionId: string; text: string; toolCalls: ToolCall[]; done: boolean }
+type ToolCall = Reply['toolCalls'][number];
 
 /** How long to wait between the florist's edits, so the customer sees each one land in 3D. */
 const STEP_PAUSE_MS = 250;
@@ -14,7 +14,12 @@ const STEP_LABELS: Record<string, string> = {
   set_shape: 'Changed the shape', rearrange: 'Tidied the arrangement', show_checkout: 'Ready to pay',
 };
 
-async function post(body: unknown): Promise<Reply> {
+/** Set at build time for the static site: the Cloudflare Worker that runs the florist on Gemini. */
+const WORKER_URL: string | undefined = import.meta.env.VITE_FLORIST_URL;
+const gemini = WORKER_URL ? new GeminiFlorist(WORKER_URL) : null;
+
+async function post(body: Parameters<GeminiFlorist['send']>[0]): Promise<Reply> {
+  if (gemini) return gemini.send(body);
   const res = await fetch('/api/florist', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json.error ?? `The shop answered ${res.status}.`);
@@ -55,6 +60,7 @@ export class FloristChat {
     this.log.setAttribute('role', 'log');
     this.log.setAttribute('aria-live', 'polite');
     this.say('florist', 'Hi! Tell me the occasion, the colours or flowers they love, and your budget, and I\'ll build the bouquet for you.');
+    if (gemini) this.say('step', 'Chats are handled by Google Gemini and may be used to improve it, so please don\'t share personal details.');
 
     const form = document.createElement('form');
     form.className = 'florist-form';
