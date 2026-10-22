@@ -55,6 +55,14 @@ describe('florist worker', () => {
     expect((await handle(req({ contents: 'x' }), env, gemini(200, {}))).status).toBe(400);
   });
 
+  it('only passes the parts the chat sends, with short customer messages', async () => {
+    const ok = gemini(200, { candidates: [{ content: { role: 'model', parts: [{ text: 'hi' }] } }] });
+    const image = { contents: [{ role: 'user', parts: [{ inlineData: { mimeType: 'image/png', data: 'AAAA' } }] }] };
+    const essay = { contents: [{ role: 'user', parts: [{ text: 'x'.repeat(2001) }] }] };
+    expect((await handle(req(image), env, ok)).status).toBe(400);
+    expect((await handle(req(essay), env, ok)).status).toBe(400);
+  });
+
   it('caps calls per visitor per day', async () => {
     const ok = gemini(200, { candidates: [{ content: { role: 'model', parts: [{ text: 'hi' }] } }] });
     let last = 0;

@@ -41,9 +41,19 @@ function overCap(ip: string, now: number): boolean {
   return n > CALLS_PER_IP_PER_DAY;
 }
 
+/** Only what the chat drawer sends, so the Worker can't be used for images or long prompts of someone else's. */
+const PART_KEYS = new Set(['text', 'thought', 'thoughtSignature', 'functionCall', 'functionResponse']);
+const MAX_USER_TEXT = 2000;
+
+function validPart(part: any, role: string): boolean {
+  return part && typeof part === 'object' && Object.keys(part).every((k) => PART_KEYS.has(k))
+    && (role !== 'user' || part.text === undefined || (typeof part.text === 'string' && part.text.length <= MAX_USER_TEXT));
+}
+
 function validContents(contents: unknown): contents is { role: string; parts: unknown[] }[] {
   return Array.isArray(contents) && contents.length > 0 && contents.length <= MAX_CONTENTS
-    && contents.every((c) => c && (c.role === 'user' || c.role === 'model') && Array.isArray(c.parts));
+    && contents.every((c) => c && (c.role === 'user' || c.role === 'model') && Array.isArray(c.parts)
+      && c.parts.every((p: unknown) => validPart(p, c.role)));
 }
 
 export async function handle(request: Request, env: Env, fetchFn: typeof fetch = fetch, now = Date.now()): Promise<Response> {
