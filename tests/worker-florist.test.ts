@@ -40,6 +40,15 @@ describe('florist worker', () => {
     expect(decls.find((d: any) => d.name === 'get_design')).not.toHaveProperty('parameters');
   });
 
+  it('cleans a key pasted through PowerShell (byte-order mark, spaces)', async () => {
+    let key = '';
+    await handle(req(userSays), { GEMINI_API_KEY: '﻿test-key \r\n' }, async (_u, init) => {
+      key = (init!.headers as Record<string, string>)['x-goog-api-key'];
+      return new Response(JSON.stringify({ candidates: [{ content: { role: 'model', parts: [{ text: 'hi' }] } }] }));
+    });
+    expect(key).toBe('test-key');
+  });
+
   it('tries the next model when one is out of quota', async () => {
     const urls: string[] = [];
     const res = await handle(req(userSays), env, async (url) => {

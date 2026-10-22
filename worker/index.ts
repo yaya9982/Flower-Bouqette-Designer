@@ -82,7 +82,7 @@ export async function handle(request: Request, env: Env, fetchFn: typeof fetch =
   });
   for (const model of MODELS) {
     const res = await fetchFn(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-      method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY }, body,
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY.trim() }, body,
     });
     if (res.status === 429 || res.status === 503) continue;
     const json: any = await res.json().catch(() => ({}));
