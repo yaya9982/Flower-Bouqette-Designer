@@ -6,6 +6,14 @@ const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 /** Spacing between heads. Tight enough that heads bunch and overlap a little, as in a real bouquet; the tests cap how far. */
 const PACKING = 0.66;
 const MIN_RADIUS = 0.05;
+/** After the spiral, heads are nudged apart until none is closer than this share of the ... */
+const RELAX_SEPARATION = 0.8;
+/** ...while a pull toward the centre closes the gaps (a fraction of each head's distance, per step). */
+const RELAX_GRAVITY = 0.007;
+const RELAX_STEPS = 120;
+/** Heads are pushed until their gap is this multiple of the separation, at this share of the shortfall per step. */
+const RELAX_SPREAD = 1.35;
+const RELAX_PUSH = 0.5;
 const GAP_RINGS = 10;
 const GAP_SPOKES = 36;
 
@@ -52,7 +60,7 @@ export class Arranger {
     const areas = ordered.map((stem) => this.catalog.headDiameter(stem.flower) ** 2);
     const total = areas.reduce((sum, a) => sum + a, 0);
     let used = 0;
-    return ordered.map((stem, i) => {
+    const spiral = ordered.map((stem, i) => {
       // Distance from the centre at which the area inside equals the area of the heads placed so far.
       const dist = Math.sqrt((used + areas[i] / 2) / total);
       used += areas[i];
@@ -64,6 +72,49 @@ export class Arranger {
         tilt: 0,
       };
     });
+    return this.relax(spiral);
+  }
+
+  /**
+   * The spiral gives every head room in proportion to its area, but heads of very different sizes leave holes
+   * between them. Settling the layout fixes that: heads that crowd are pushed apart, a gentle pull toward the centre
+   * closes the gaps, and the rim of the bouquet stays where it was. The result is an evenly packed dome, whatever
+   * mix of big and small flowers it holds. Deterministic: no randomness, and the same order every time.
+   */
+  private relax(stems: Stem[]): Stem[] {
+    const n = stems.length;
+    if (n < 2) return stems;
+    const radius = this.surfaceRadius(stems);
+    const reach = stems.map((s) => this.catalog.headDiameter(s.flower) / 2);
+    const at = stems.map((s) => ({ x: radius * s.dist * Math.cos(s.angle), y: radius * s.dist * Math.sin(s.angle) }));
+    for (let step = 0; step < RELAX_STEPS; step++) {
+      const move = at.map(() => ({ x: 0, y: 0 }));
+      for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+          const dx = at[j].x - at[i].x;
+          const dy = at[j].y - at[i].y;
+          const gap = Math.hypot(dx, dy) || 1e-9;
+          // Keeps pushing a little past touching, so heads settle evenly instead of sitting in contact.
+          const wanted = RELAX_SEPARATION * (reach[i] + reach[j]) * RELAX_SPREAD;
+          if (gap >= wanted) continue;
+          const push = ((wanted - gap) / 2) * RELAX_PUSH;
+          move[i].x -= (dx / gap) * push;
+          move[i].y -= (dy / gap) * push;
+          move[j].x += (dx / gap) * push;
+          move[j].y += (dy / gap) * push;
+        }
+      }
+      for (let i = 0; i < n; i++) {
+        at[i].x += move[i].x - at[i].x * RELAX_GRAVITY;
+        at[i].y += move[i].y - at[i].y * RELAX_GRAVITY;
+        const out = Math.hypot(at[i].x, at[i].y);
+        if (out > radius) {
+          at[i].x *= radius / out;
+          at[i].y *= radius / out;
+        }
+      }
+    }
+    return stems.map((s, i) => ({ ...s, angle: (Math.atan2(at[i].y, at[i].x) + TAU) % TAU, dist: Math.min(1, Math.hypot(at[i].x, at[i].y) / radius) }));
   }
 
   /**

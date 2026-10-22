@@ -20,8 +20,9 @@ POINTS = 60000
 LIGHT = np.array([0.4, 0.7, 0.6]) / np.linalg.norm([0.4, 0.7, 0.6])
 
 
-def cloud(path, rng):
-    """Coloured points spread evenly over the model's surface."""
+def cloud(path, rng, tint=None):
+    """Coloured points spread evenly over the model's surface. `tint` (a hex colour) colours the grey 'petal' part,
+    as the designer does for the recolourable flowers."""
     g, blob = load(path)
     points, colours = [], []
     prims = primitives(g, blob)
@@ -40,6 +41,8 @@ def cloud(path, rng):
         p = (pos[t] * w).sum(1)
         factor, image, _, _ = source_material(g, mat)
         rgb = np.tile(np.array(factor[:3], float), (n, 1))
+        if tint and mat is not None and g['materials'][mat].get('name') == 'petal':
+            rgb *= (np.array([int(tint[i:i + 2], 16) for i in (1, 3, 5)]) / 255) ** 2.2
         keep = np.ones(n, bool)
         if image is not None:
             img = np.asarray(Image.open(io.BytesIO(image_bytes(g, blob, image))).convert('RGBA'), float) / 255

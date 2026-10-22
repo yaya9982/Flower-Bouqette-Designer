@@ -1,4 +1,4 @@
-import { MAX_STEMS, MIN_STEMS, type Bouquet, type PaperId, type ShapeId, type Wrap } from './bouquet';
+import { MAX_STEMS, MIN_STEMS, type Bouquet, type BowId, type GreeneryId, type PaperId, type ShapeId, type Wrap } from './bouquet';
 import { PAPER_COLOURS, RIBBON_COLOURS, type Catalog, type FlowerType, type NamedColour } from './catalog';
 import type { Preset, Presets } from './presets';
 import { formatCents, priceBouquet } from './pricing';
@@ -38,6 +38,37 @@ export interface PanelActions {
 }
 
 const PAPER_NAMES: Record<PaperId, string> = { none: 'No paper', kraft: 'Kraft', matte: 'Matte', tissue: 'Tissue' };
+/** Size of a flower's preview picture (public/thumbs/<id>.webp, made by tools/thumbnails.py), in CSS pixels. */
+const PREVIEW_SIZE = 128;
+let preview: HTMLImageElement | null = null;
+
+/**
+ * Shows the flower's picture beside its row in the "Add flowers" list, over the 3D view. One shared picture outside
+ * the list, because the list scrolls and would clip anything inside it. Decorative: the row already names the flower.
+ */
+function showPreview(row: HTMLElement, flowerId: string): void {
+  if (!preview) {
+    preview = document.createElement('img');
+    preview.className = 'flower-preview';
+    preview.alt = '';
+    preview.width = preview.height = PREVIEW_SIZE;
+    preview.addEventListener('error', hidePreview);
+    document.body.append(preview);
+  }
+  const rect = row.getBoundingClientRect();
+  const top = Math.min(Math.max(8, rect.top + rect.height / 2 - PREVIEW_SIZE / 2), window.innerHeight - PREVIEW_SIZE - 8);
+  preview.style.top = `${top}px`;
+  preview.style.left = `${Math.max(8, rect.left - PREVIEW_SIZE - 16)}px`;
+  preview.src = `${import.meta.env.BASE_URL}thumbs/${flowerId}.webp`;
+  preview.hidden = false;
+}
+
+function hidePreview(): void {
+  if (preview) preview.hidden = true;
+}
+
+const BOW_NAMES: Record<BowId, string> = { ribbon: 'Ribbon bow', star: 'Gift star' };
+const GREENERY_NAMES: Record<GreeneryId, string> = { none: 'No greenery', fern: 'Ferns', eucalyptus: 'Eucalyptus leaves', leafy: 'Leafy sprigs' };
 
 type Child = Node | string;
 
@@ -191,10 +222,18 @@ export class Panel {
     const offered = catalog.flowers
       .filter((f) => colourFilter === null || f.colours.some((c) => c.id === colourFilter))
       .sort((a, b) => a.name.localeCompare(b.name) || (a.title ?? '').localeCompare(b.title ?? ''));
-    const addRows = offered.map((type) => el('div', { class: 'row', role: 'listitem' },
-      name(type),
-      button(`plus-${type.id}`, '+', () => actions.add(type.id, colourFilter ?? undefined), { class: 'step', 'aria-label': `Add one ${flowerLabel(type)}` }, full),
-    ));
+    hidePreview();
+    const addRows = offered.map((type) => {
+      const row = el('div', { class: 'row', role: 'listitem' },
+        name(type),
+        button(`plus-${type.id}`, '+', () => actions.add(type.id, colourFilter ?? undefined), { class: 'step', 'aria-label': `Add one ${flowerLabel(type)}` }, full),
+      );
+      row.addEventListener('pointerenter', () => showPreview(row, type.id));
+      row.addEventListener('focusin', () => showPreview(row, type.id));
+      row.addEventListener('pointerleave', hidePreview);
+      row.addEventListener('focusout', hidePreview);
+      return row;
+    });
     const pickColour = (id: string | null) => {
       this.colourFilter = id;
       this.render(state, actions);
@@ -219,6 +258,8 @@ export class Panel {
         select('paper', 'Paper', (Object.keys(PAPER_NAMES) as PaperId[]).map((id) => ({ id, name: PAPER_NAMES[id] })), bouquet.wrap.paper, (id) => actions.setWrap({ paper: id as PaperId })),
         swatches('paper-colour', 'Paper colour', PAPER_COLOURS, bouquet.wrap.paperColour, (id) => actions.setWrap({ paperColour: id })),
         swatches('ribbon-colour', 'Ribbon colour', RIBBON_COLOURS, bouquet.wrap.ribbonColour, (id) => actions.setWrap({ ribbonColour: id })),
+        select('bow', 'Bow', (Object.keys(BOW_NAMES) as BowId[]).map((id) => ({ id, name: BOW_NAMES[id] })), bouquet.wrap.bow, (id) => actions.setWrap({ bow: id as BowId })),
+        select('greenery', 'Greenery (free)', (Object.keys(GREENERY_NAMES) as GreeneryId[]).map((id) => ({ id, name: GREENERY_NAMES[id] })), bouquet.wrap.greenery, (id) => actions.setWrap({ greenery: id as GreeneryId })),
       ),
     ];
 

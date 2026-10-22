@@ -29,6 +29,12 @@ the 3D models.
 - `npm run shot -- shots/<name>.png tools/steps/<step>.mjs`: headless Chrome check (playwright-core) against the dev
   server; prints `ok` or the console/page errors. Steps use `window.__debug`, which exists only in dev builds.
 - `python tools/test_safety.py` (run from `tools/`): checks the tools refuse hostile zips, GLBs and links.
+- `python tools/prepare_parts.py`: prepares the bows, stem and greenery from `flowers_sources/sketchfab/parts/` into
+  `public/models/parts/`. Their credits are listed by hand in `public/credits.html`; keep them in step with `PARTS`.
+- `python tools/prepare_paper.py`: the paper textures (`public/textures/paper/`) cut from the models in
+  `flowers_sources/sketchfab/paper/`. Their credits are listed by hand in `public/credits.html`; keep them in step with `PAPERS`.
+- `python tools/thumbnails.py` (run from `tools/`): the flower pictures shown when hovering a row of "Add flowers"
+  (`public/thumbs/<id>.webp`). Run it after `prepare_models.py`.
 
 ## Layout
 
@@ -40,7 +46,8 @@ the 3D models.
 - `src/presets.ts`: the 30 preset bouquets (3 featured buttons + the rest behind "Random"). Each lists its sources and
   evidence. Groups place flowers by view angle (0 = front, 90 = right), distance 0-1, height and tilt.
   `RANDOM_OPENS_LIST` in `src/panel.ts` makes "Random" open a list for testing; set it to false for a real random pick.
-- `src/scene.ts`, `src/wrap.ts`: Babylon scene, model loading, picking and dragging, paper and ribbon.
+- `src/scene.ts`, `src/wrap.ts`: Babylon scene, model loading, picking and dragging, paper, ribbon, bow and greenery.
+- `src/greenery.ts`: where greenery sprigs go (a ring around the rim) and which models each kind of greenery uses.
 - `src/panel.ts`, `src/main.ts`: the side panel (data-key attributes are used by `tools/steps`) and the wiring.
 - `tests/`: unit tests, including a check that preset flower heads do not sit inside each other.
 - `flowers_sources/`: original downloads (not loaded by the app, about 1.2 GB, untracked).

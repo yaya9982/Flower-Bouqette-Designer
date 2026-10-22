@@ -13,9 +13,10 @@ describe('shape classes', () => {
     for (const id of SHAPES) expect(SHAPE_OF[id].id).toBe(id);
   });
 
-  it('only the cascade leans, and its paper is sized as a round dome', () => {
-    expect(SHAPES.filter((id) => SHAPE_OF[id].lean !== 0)).toEqual(['cascade']);
+  it('the cascade and one-sided shapes lean, and their paper is sized as an upright round dome', () => {
+    expect(SHAPES.filter((id) => SHAPE_OF[id].lean !== 0)).toEqual(['cascade', 'onesided']);
     expect(SHAPE_OF.cascade.paperRimShape).toBe(SHAPE_OF.round);
+    expect(SHAPE_OF.onesided.paperRimShape).toBe(SHAPE_OF.round);
     expect(SHAPES.filter((id) => SHAPE_OF[id].paperOpening)).toEqual(['cascade', 'onesided']);
   });
 

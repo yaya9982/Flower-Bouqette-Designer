@@ -7,7 +7,8 @@ import {
 import { Arranger } from './arrange';
 import type { Bouquet } from './bouquet';
 import type { Catalog } from './catalog';
-import { FlowerFactory, FlowerViews, ModelLibrary, v3 } from './flowers';
+import { FlowerFactory, FlowerViews, ModelLibrary, partModel, v3 } from './flowers';
+import { PaperTextures } from './paper-textures';
 import { BINDING, SHAPE_OF, TAU, type ShapeId } from './shapes';
 import { WrapView } from './wrap';
 
@@ -215,10 +216,10 @@ export class BouquetView {
     this.models = new ModelLibrary(scene, () => {
       if (this.lastRender) this.render(this.lastRender.bouquet, this.lastRender.selectedId);
     });
-    this.flowers = new FlowerViews(this.factory, this.models, catalog);
+    this.flowers = new FlowerViews(this.factory, this.models, catalog, partModel('stem.glb'));
     this.highlight = new HighlightLayer('highlight', scene);
     this.drag = new DragSurface(scene);
-    this.wrap = new WrapView(scene, shadows);
+    this.wrap = new WrapView(scene, shadows, this.models, new PaperTextures(scene));
 
     engine.runRenderLoop(this.draw);
     window.addEventListener('resize', this.onResize);
@@ -239,7 +240,7 @@ export class BouquetView {
     this.currentRadius = radius;
     this.drag.update(bouquet.shape, radius, this.dragHeight);
     this.applyHighlight(selectedId);
-    this.wrap.update(bouquet.wrap, bouquet.shape, radius);
+    this.wrap.update(bouquet.wrap, bouquet.shape, radius, bouquet.stems.length);
     this.rig.follow(reach, this.ground.position.y);
   }
 

@@ -1,5 +1,6 @@
-import { PAPERS, SHAPES, type Bouquet, type BouquetEditor, type PaperId, type ShapeId, type Wrap } from './bouquet';
-import { PAPER_COLOURS, RIBBON_COLOURS, type Catalog } from './catalog';
+import { BOWS, GREENERIES, PAPERS, SHAPES, type Bouquet, type BouquetEditor, type BowId, type GreeneryId, type PaperId, type ShapeId, type Wrap } from './bouquet';
+import { PAPER_COLOURS, RIBBON_COLOURS, type Catalog, type FlowerType } from './catalog';
+import { measure, MIN_FOR_OUTLINE } from './compact';
 import type { Presets } from './presets';
 import { priceBouquet, stemCents } from './pricing';
 
@@ -21,6 +22,12 @@ export interface ToolResult {
 }
 
 const MAX_ADD = 12;
+/** Tools that change which flowers sit where, after which a gap-ridden design is arranged again. */
+const RELAYOUT = new Set(['add_flowers', 'remove_flowers', 'swap_flowers', 'set_shape']);
+/** A design whose heads cover less of its face than this is tidied. Above the 75% the tests demand, so a tidy always lands clear of it. */
+const TIDY_BELOW = 0.8;
+/** ...or whose closest two heads are nearer than this share of their combined size (the tests allow 50%). */
+const TIDY_CLOSEST = 0.55;
 const MAX_FOUND = 15;
 
 /** A tool input that is not what the schema promised. */
@@ -56,8 +63,9 @@ export class FloristTools {
   run(b: Bouquet, name: string, input: unknown): ToolResult {
     try {
       if (typeof input !== 'object' || input === null) throw new BadInput('The input must be an object.');
-      const { next, result } = this.call(b, name, input as Record<string, unknown>);
-      return { next, result: { ...result, ...this.describe(next) }, isError: false };
+      const called = this.call(b, name, input as Record<string, unknown>);
+      const next = RELAYOUT.has(name) ? this.tidy(called.next) : called.next;
+      return { next, result: { ...called.result, ...this.describe(next) }, isError: false };
     } catch (error) {
       if (!(error instanceof BadInput)) throw error;
       return { next: b, result: { error: error.message, ...this.describe(b) }, isError: true };
@@ -77,6 +85,17 @@ export class FloristTools {
       summary: { flowers: [...groups.values()], stems: b.stems.length, shape: b.shape, wrap: b.wrap },
       totalCents: priceBouquet(b, this.catalog).totalCents,
     };
+  }
+
+  /**
+   * Flowers added one at a time into the emptiest spot, or taken out, leave a design loose, like a ball of spikes.
+   * When that happens the florist arranges it again, as it would by hand; a compact design, including one the customer
+   * arranged themselves, is left exactly as it is.
+   */
+  private tidy(b: Bouquet): Bouquet {
+    if (b.stems.length < MIN_FOR_OUTLINE) return b;
+    const m = measure(b.stems, b.shape, this.catalog, this.editor.arranger);
+    return m.covered >= TIDY_BELOW && m.isolated === 0 && m.closest >= TIDY_CLOSEST ? b : this.editor.rearrange(b);
   }
 
   private flower(id: string) {
@@ -99,12 +118,20 @@ export class FloristTools {
       case 'search_flowers': {
         const query = str(input, 'query').trim().toLowerCase();
         const colour = str(input, 'colour').trim().toLowerCase();
-        const flowers = this.catalog.flowers
-          .filter((f) => !colour || f.colours.some((c) => c.id === colour))
-          .filter((f) => !query || f.name.toLowerCase().includes(query) || (f.title ?? '').toLowerCase().includes(query))
+        const named = (f: FlowerType) => !query || f.name.toLowerCase().includes(query) || (f.title ?? '').toLowerCase().includes(query);
+        const matches = this.catalog.flowers.filter((f) => (!colour || f.colours.some((c) => c.id === colour)) && named(f));
+        const flowers = matches
           .slice(0, MAX_FOUND)
           .map((f) => ({ flowerId: f.id, name: f.name, title: f.title ?? '', colours: f.colours.map((c) => c.id), unitCents: stemCents(f.name) }));
-        return { next: b, result: { flowers } };
+        const result: Record<string, unknown> = { flowers, total: matches.length };
+        // A search that finds nothing says what exists instead, so the model does not guess at more words.
+        if (!matches.length) {
+          const colours = [...new Set(this.catalog.flowers.filter(named).flatMap((f) => f.colours.map((c) => c.id)))];
+          result.note = colours.length
+            ? `No "${query}" in ${colour || 'any colour'}. "${query}" comes in: ${colours.join(', ')}.`
+            : `No flower matches "${query}". Search with an empty query and a colour to browse.`;
+        }
+        return { next: b, result };
       }
 
       case 'list_presets':
@@ -169,10 +196,17 @@ export class FloristTools {
         if (paper && !PAPERS.includes(paper as PaperId)) throw new BadInput(`Paper must be one of: ${PAPERS.join(', ')}.`);
         if (paperColour && !PAPER_COLOURS.some((c) => c.id === paperColour)) throw new BadInput(`Paper colour must be one of: ${PAPER_COLOURS.map((c) => c.id).join(', ')}.`);
         if (ribbonColour && !RIBBON_COLOURS.some((c) => c.id === ribbonColour)) throw new BadInput(`Ribbon colour must be one of: ${RIBBON_COLOURS.map((c) => c.id).join(', ')}.`);
+        // Optional, so a florist still running with the older tool list (without them) keeps working.
+        const bow = input.bow === undefined ? '' : str(input, 'bow');
+        const greenery = input.greenery === undefined ? '' : str(input, 'greenery');
+        if (bow && !BOWS.includes(bow as BowId)) throw new BadInput(`Bow must be one of: ${BOWS.join(', ')}.`);
+        if (greenery && !GREENERIES.includes(greenery as GreeneryId)) throw new BadInput(`Greenery must be one of: ${GREENERIES.join(', ')}.`);
         const patch: Partial<Wrap> = {};
         if (paper) patch.paper = paper as PaperId;
         if (paperColour) patch.paperColour = paperColour;
         if (ribbonColour) patch.ribbonColour = ribbonColour;
+        if (bow) patch.bow = bow as BowId;
+        if (greenery) patch.greenery = greenery as GreeneryId;
         return { next: editor.setWrap(b, patch), result: { ok: true } };
       }
 

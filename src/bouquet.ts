@@ -6,6 +6,11 @@ export { SHAPES, type ShapeId } from './shapes';
 
 export type PaperId = 'none' | 'kraft' | 'matte' | 'tissue';
 export const PAPERS: readonly PaperId[] = ['none', 'kraft', 'matte', 'tissue'];
+export type BowId = 'ribbon' | 'star';
+export const BOWS: readonly BowId[] = ['ribbon', 'star'];
+/** Sprigs tucked in around the rim (src/greenery.ts). */
+export type GreeneryId = 'none' | 'fern' | 'eucalyptus' | 'leafy';
+export const GREENERIES: readonly GreeneryId[] = ['none', 'fern', 'eucalyptus', 'leafy'];
 
 export interface Stem {
   id: string;
@@ -25,6 +30,8 @@ export interface Wrap {
   paper: PaperId;
   paperColour: string;
   ribbonColour: string;
+  bow: BowId;
+  greenery: GreeneryId;
 }
 
 export interface Bouquet {
@@ -65,7 +72,9 @@ function isValidWrap(value: unknown): value is Wrap {
   const w = value as Record<string, unknown>;
   return PAPERS.includes(w.paper as PaperId)
     && PAPER_COLOURS.some((c) => c.id === w.paperColour)
-    && RIBBON_COLOURS.some((c) => c.id === w.ribbonColour);
+    && RIBBON_COLOURS.some((c) => c.id === w.ribbonColour)
+    && BOWS.includes(w.bow as BowId)
+    && GREENERIES.includes(w.greenery as GreeneryId);
 }
 
 /**
@@ -90,7 +99,7 @@ export class BouquetEditor {
     return {
       version: 1,
       shape: 'round',
-      wrap: { paper: 'kraft', paperColour: PAPER_COLOURS[0].id, ribbonColour: RIBBON_COLOURS[0].id },
+      wrap: { paper: 'kraft', paperColour: PAPER_COLOURS[0].id, ribbonColour: RIBBON_COLOURS[0].id, bow: 'ribbon', greenery: 'eucalyptus' },
       stems: this.arranger.autoArrange(stems),
     };
   }
@@ -147,7 +156,7 @@ export class BouquetEditor {
 
   setWrap(b: Bouquet, patch: Partial<Wrap>): Bouquet {
     const wrap = { ...b.wrap, ...patch };
-    const changed = wrap.paper !== b.wrap.paper || wrap.paperColour !== b.wrap.paperColour || wrap.ribbonColour !== b.wrap.ribbonColour;
+    const changed = (Object.keys(wrap) as (keyof Wrap)[]).some((key) => wrap[key] !== b.wrap[key]);
     return changed && isValidWrap(wrap) ? { ...b, wrap } : b;
   }
 
@@ -166,7 +175,8 @@ export class BouquetEditor {
     if (typeof data !== 'object' || data === null) return null;
     const d = data as Record<string, unknown>;
     const shape = d.shape as ShapeId;
-    const wrap = d.wrap;
+    // Saved before bows and greenery existed: the bow it had then, and no greenery.
+    const wrap = typeof d.wrap === 'object' && d.wrap !== null ? { bow: 'ribbon', greenery: 'none', ...d.wrap } : d.wrap;
     const rawStems = d.stems;
     if (d.version !== 1 || !SHAPES.includes(shape) || !isValidWrap(wrap) || !Array.isArray(rawStems)) return null;
     if (rawStems.length < MIN_STEMS || rawStems.length > MAX_STEMS) return null;
@@ -188,7 +198,7 @@ export class BouquetEditor {
     return {
       version: 1,
       shape,
-      wrap: { paper: wrap.paper, paperColour: wrap.paperColour, ribbonColour: wrap.ribbonColour },
+      wrap: { paper: wrap.paper, paperColour: wrap.paperColour, ribbonColour: wrap.ribbonColour, bow: wrap.bow, greenery: wrap.greenery },
       stems,
     };
   }

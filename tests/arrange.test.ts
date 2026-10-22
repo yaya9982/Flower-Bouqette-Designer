@@ -3,6 +3,8 @@ import { SHAPES, type Stem } from '../src/bouquet';
 import { Catalog, FLOWERS } from '../src/catalog';
 import { Arranger } from '../src/arrange';
 import { BINDING, distance, SHAPE_OF, TAU } from '../src/shapes';
+import { measure, MIN_COVERED } from '../src/compact';
+import { seeded } from './soak/prompts';
 
 const catalog = new Catalog(FLOWERS);
 const arranger = new Arranger(catalog);
@@ -29,7 +31,17 @@ const SETS: Record<string, Spec> = {
   oneBigAmongSmall: [['tulip', 39], ['sunflower', 1]],
 };
 
+const covered = (stems: Stem[], shape: (typeof SHAPES)[number]) => measure(stems, shape, catalog, arranger).covered;
+
 describe('autoArrange', () => {
+  for (const name of ['twelveMixed', 'fortyRoses', 'fortyMixed', 'bigAndSmall']) {
+    for (const shape of SHAPES) {
+      it(`${name} in ${shape}: heads form a closed face, not a spread-out fan`, () => {
+        expect(covered(arranger.autoArrange(make(SETS[name])), shape)).toBeGreaterThanOrEqual(MIN_COVERED);
+      });
+    }
+  }
+
   for (const [name, spec] of Object.entries(SETS)) {
     for (const shape of SHAPES) {
       it(`${name} in ${shape}: no two heads crowd closer than 60%`, () => {
@@ -81,6 +93,23 @@ describe('autoArrange', () => {
   it('spreads each flower type across the bouquet', () => {
     const out = arranger.autoArrange(make([['rose', 6], ['tulip', 6]]));
     expect(out.slice(0, 4).map((s) => s.flower)).toEqual(['rose', 'tulip', 'rose', 'tulip']);
+  });
+});
+
+describe('autoArrange on random mixes', () => {
+  it('is a compact bouquet in every shape, whatever mix of big and small heads', () => {
+    const bad: string[] = [];
+    for (let seed = 0; seed < 150; seed++) {
+      const rng = seeded(seed);
+      const n = 4 + Math.floor(rng() * 37);
+      const types = Array.from({ length: 1 + Math.floor(rng() * 4) }, () => FLOWERS[Math.floor(rng() * FLOWERS.length)].id);
+      const stems = arranger.autoArrange(make(types.map((id, i) => [id, Math.floor(n / types.length) + (i < n % types.length ? 1 : 0)] as [string, number])));
+      for (const shape of SHAPES) {
+        const m = measure(stems, shape, catalog, arranger);
+        if (m.covered < MIN_COVERED || m.isolated > 0 || m.closest < CLOSEST) bad.push(`seed ${seed} ${shape} x${stems.length}: covered ${m.covered.toFixed(2)}, ${m.isolated} alone, closest ${m.closest.toFixed(2)}`);
+      }
+    }
+    expect(bad).toEqual([]);
   });
 });
 

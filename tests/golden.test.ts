@@ -10,7 +10,8 @@ const presets = new Presets(editor);
 
 /**
  * Every placement number as its exact float64 bits, so a refactor that changes even the last digit or the sign of
- * a zero fails. The snapshot was written before the object-oriented conversion; never update it with `-u`.
+ * a zero fails. Update it with `-u` only for a deliberate change to the placement maths (as when the one-sided and
+ * cascading shapes were made compact), never to make a refactor pass.
  */
 const view = new DataView(new ArrayBuffer(8));
 const hex = (n: number) => { view.setFloat64(0, n); return view.getBigUint64(0).toString(16).padStart(16, '0'); };

@@ -59,9 +59,10 @@ const BUGLOSS = 'sf-a2b8399f';
 const DELPHINIUM_PURPLE = 'sf-c3bad860';
 const CHRYSANTHEMUM_ORANGE = 'sf-c501f8c4';
 
-const kraft = (ribbon: string): Wrap => ({ paper: 'kraft', paperColour: 'kraft', ribbonColour: ribbon });
-const paper = (kind: 'matte' | 'tissue', colour: string, ribbon: string): Wrap => ({ paper: kind, paperColour: colour, ribbonColour: ribbon });
-const bare = (ribbon: string): Wrap => ({ paper: 'none', paperColour: 'white', ribbonColour: ribbon });
+// Presets show their flowers as researched, so they add no greenery; the customer can add some.
+const kraft = (ribbon: string): Wrap => ({ paper: 'kraft', paperColour: 'kraft', ribbonColour: ribbon, bow: 'ribbon', greenery: 'none' });
+const paper = (kind: 'matte' | 'tissue', colour: string, ribbon: string): Wrap => ({ paper: kind, paperColour: colour, ribbonColour: ribbon, bow: 'ribbon', greenery: 'none' });
+const bare = (ribbon: string): Wrap => ({ paper: 'none', paperColour: 'white', ribbonColour: ribbon, bow: 'ribbon', greenery: 'none' });
 
 export const PRESETS: Preset[] = [
   {
@@ -114,12 +115,12 @@ export const PRESETS: Preset[] = [
     shape: 'round', wrap: bare('red'),
     groups: [
       { f: 'rose', c: 'red', n: 1, d: 0, h: 0.2 },
-      { f: 'lily', c: 'pink', n: 2, d: 0.62, h: 0.35, at: 0, arc: 100 },
+      { f: 'lily', c: 'pink', n: 2, d: 0.57, h: 0.35, at: 0, arc: 100 },
       { f: 'lily', c: 'pink', n: 1, d: 0.42, h: 0.55, at: 180 },
       { f: 'rose', c: 'red', n: 4, d: 0.3, h: 0.15, at: 135, arc: 150 },
-      { f: 'rose', c: 'pink', n: 6, d: 0.62, h: 0.1, at: 180, arc: 200 },
+      { f: 'rose', c: 'pink', n: 6, d: 0.57, h: 0.1, at: 180, arc: 200 },
       { f: 'carnation', c: 'white', n: 3, d: 0.4, h: -0.1, at: 0, arc: 70 },
-      { f: GYPSOPHILA, c: 'white', n: 8, d: 0.88, h: 0.1, at: 22, tilt: 15 },
+      { f: GYPSOPHILA, c: 'white', n: 8, d: 0.88, h: 0, at: 22, tilt: 15 },
     ],
   },
   {
@@ -128,12 +129,12 @@ export const PRESETS: Preset[] = [
     sources: ['https://www.bloomsybox.com/what-are-some-popular-flower-combinations-for-mixed-bouquets', 'https://www.interflora.co.nz/p-infinite-tenderness-tendresse-infinie-417675', 'https://sendflowers.io/florists/teleflora/products/tev60-9'],
     shape: 'round', wrap: kraft('ivory'),
     groups: [
-      { f: 'lily', c: 'white', n: 1, d: 0.1, h: 0.45, at: 180 },
+      { f: 'lily', c: 'white', n: 1, d: 0.05, h: 0.45, at: 180 },
       { f: 'lily', c: 'white', n: 2, d: 0.45, h: 0.25, at: 0, arc: 140 },
       { f: 'rose', c: 'red', n: 4, d: 0.36, at: 180, arc: 210 },
-      { f: 'rose', c: 'red', n: 8, d: 0.72, at: 22 },
-      { f: 'rose', c: 'pink', n: 5, d: 0.93, at: 0, tilt: 12 },
-      { f: GYPSOPHILA, c: 'white', n: 5, d: 0.97, h: 0.1, at: 36, tilt: 15 },
+      { f: 'rose', c: 'red', n: 8, d: 0.62, at: 22 },
+      { f: 'rose', c: 'pink', n: 5, d: 0.88, at: 0, tilt: 12 },
+      { f: GYPSOPHILA, c: 'white', n: 5, d: 0.87, h: 0, at: 36, tilt: 15 },
     ],
   },
   {
@@ -330,7 +331,7 @@ export const PRESETS: Preset[] = [
       { f: 'rose', c: 'cream', n: 3, d: 0.58, at: 60 },
       { f: MARIGOLD, c: 'orange', n: 3, d: 0.6, at: 0 },
       { f: ORCHID_WHITE, c: 'white', n: 2, d: 0.82, h: -0.15, at: 0, arc: 60 },
-      { f: CALLA, c: 'red', n: 4, d: 0.9, h: 0.25, at: 180, arc: 240 },
+      { f: CALLA, c: 'red', n: 4, d: 0.85, h: 0.25, at: 180, arc: 240 },
       { f: 'rose', c: 'orange', n: 2, d: 0.85, at: 0, arc: 150 },
     ],
   },
@@ -397,9 +398,9 @@ export const PRESETS: Preset[] = [
     groups: [
       { f: 'rose', c: 'white', n: 5, d: 0.25, h: 0.1, at: 180, arc: 200 },
       { f: 'rose', c: 'cream', n: 3, d: 0.55, at: 180, arc: 120 },
-      { f: ORCHID_WHITE, c: 'white', n: 3, d: 0.5, at: 0, arc: 60 },
-      { f: ORCHID_WHITE, c: 'white', n: 3, d: 0.75, h: -0.05, at: 0, arc: 50 },
-      { f: ORCHID_WHITE, c: 'white', n: 3, d: 0.96, h: -0.1, at: 0, arc: 40 },
+      { f: ORCHID_WHITE, c: 'white', n: 3, d: 0.46, at: 0, arc: 80 },
+      { f: ORCHID_WHITE, c: 'white', n: 3, d: 0.73, h: -0.05, at: 0, arc: 50 },
+      { f: ORCHID_WHITE, c: 'white', n: 3, d: 1, h: -0.1, at: 0, arc: 40 },
     ],
   },
   {
@@ -424,13 +425,13 @@ export const PRESETS: Preset[] = [
     shape: 'round', wrap: bare('lilac'),
     groups: [
       { f: 'rose', c: 'purple', n: 1, d: 0, h: 0.1 },
-      { f: 'rose', c: 'purple', n: 5, d: 0.3, h: 0.05 },
+      { f: 'rose', c: 'purple', n: 5, d: 0.25, h: 0.05 },
       { f: 'carnation', c: 'red', n: 4, d: 0.48, at: 36 },
-      { f: AGAPANTHUS_BLUE, c: 'blue', n: 3, d: 0.62, h: 0.3, at: 0 },
+      { f: AGAPANTHUS_BLUE, c: 'blue', n: 3, d: 0.42, h: 0.3, at: 0 },
       { f: DELPHINIUM_PURPLE, c: 'purple', n: 3, d: 0.55, h: 0.5, at: 200, arc: 120 },
       { f: 'rose', c: 'purple', n: 4, d: 0.66, at: 45 },
-      { f: SWEET_PEA, c: 'pink', n: 6, d: 0.88, h: 0.2, at: 15, tilt: 15 },
-      { f: GYPSOPHILA, c: 'white', n: 3, d: 0.96, h: 0.3, at: 45, tilt: 12 },
+      { f: SWEET_PEA, c: 'pink', n: 6, d: 0.78, h: 0.2, at: 15, tilt: 15 },
+      { f: GYPSOPHILA, c: 'white', n: 3, d: 0.61, h: 0.3, at: 45, tilt: 12 },
     ],
   },
   {
@@ -441,11 +442,11 @@ export const PRESETS: Preset[] = [
     groups: [
       { f: 'rose', c: 'pink', n: 1, d: 0, h: -0.05 },
       { f: 'rose', c: 'pink', n: 5, d: 0.3, h: -0.1 },
-      { f: SNAPDRAGON, c: 'pink', n: 3, d: 0.45, h: 0.9, at: 45 },
+      { f: SNAPDRAGON, c: 'pink', n: 3, d: 0.5, h: 0.9, at: 45 },
       { f: DELPHINIUM_PURPLE, c: 'purple', n: 3, d: 0.4, h: 0.9, at: 200, arc: 100 },
-      { f: HYDRANGEA_PURPLE, c: 'purple', n: 2, d: 0.55, at: 270, arc: 50 },
+      { f: HYDRANGEA_PURPLE, c: 'purple', n: 2, d: 0.55, at: 240, arc: 50 },
       { f: 'daisy', c: 'pink', n: 5, d: 0.65, h: 0.3, at: 30 },
-      { f: GERANIUM_PURPLE, c: 'purple', n: 4, d: 0.9, h: -0.25, at: 90, arc: 180, tilt: 15 },
+      { f: GERANIUM_PURPLE, c: 'purple', n: 4, d: 0.85, h: -0.25, at: 90, arc: 180, tilt: 15 },
     ],
   },
   {
@@ -458,8 +459,8 @@ export const PRESETS: Preset[] = [
       { f: PEONY_PALE, c: 'pink', n: 4, d: 0.35, h: 0.1, at: 45 },
       { f: POPPY, c: 'red', n: 3, d: 0.55, h: 0.2, at: 0, arc: 120 },
       { f: 'rose', c: 'cream', n: 4, d: 0.6, at: 180, arc: 180 },
-      { f: PEONY_PINK, c: 'pink', n: 3, d: 0.82, at: 0, arc: 160 },
-      { f: SWEET_PEA, c: 'pink', n: 5, d: 0.9, h: 0.25, at: 180, arc: 200, tilt: 12 },
+      { f: PEONY_PINK, c: 'pink', n: 3, d: 0.71, at: -30, arc: 160 },
+      { f: SWEET_PEA, c: 'pink', n: 5, d: 0.8, h: 0.25, at: 180, arc: 200, tilt: 12 },
       { f: GYPSOPHILA, c: 'white', n: 3, d: 0.97, at: 0, arc: 120, tilt: 15 },
     ],
   },

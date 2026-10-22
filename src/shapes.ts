@@ -180,9 +180,9 @@ class CascadeShape extends BouquetShape {
   readonly label = 'Cascading';
   protected readonly maxRimPolar = rad(55);
   protected readonly reach = 0.42;
-  protected readonly maxLengthFactor = 1.2;
-  /** How far the cascading bouquet leans forward. */
-  override readonly lean = rad(40);
+  protected readonly maxLengthFactor = 1;
+  /** How far the cascading bouquet leans forward: far enough that its front flowers hang below the tie. */
+  override readonly lean = rad(55);
   override readonly paperOpening = true;
 
   /** Measured as an even dome, because its front flowers are meant to hang out through the opening. */
@@ -190,14 +190,13 @@ class CascadeShape extends BouquetShape {
     return SHAPE_OF.round;
   }
 
-  /** The lean does most of the dropping; the front only opens a little further, so its flowers stay together. */
+  /**
+   * The lean does the dropping; the front opens only a little further and keeps its stem length, because opening or
+   * lengthening the front pulls its flowers apart into a fan (tests/arrange.test.ts checks the face stays closed).
+   */
   override maxPolar(angle: number, radius: number): number {
     const base = this.basePolar(radius);
-    return base + rad(24) * frontness(angle);
-  }
-
-  protected override lengthFactor(angle: number, dist: number): number {
-    return 1 + 0.2 * frontness(angle) * dist * dist;
+    return base + rad(8) * frontness(angle);
   }
 }
 
@@ -210,37 +209,26 @@ class LooseShape extends BouquetShape {
   protected override readonly heightStepFactor = 1.6;
 
   protected override lengthFactor(_angle: number, dist: number): number {
-    return 1 + 0.15 * dist * dist;
+    return 1 + 0.08 * dist * dist;
   }
 }
 
+/**
+ * A round dome tipped towards the front, as a florist angles a bouquet made to be seen from one side: the back rows
+ * stand upright, the front rows face out. The dome is never wider than the tip, so no head falls behind the stems.
+ */
 class OneSidedShape extends BouquetShape {
   readonly id = 'onesided';
   readonly label = 'One-sided';
-  protected readonly maxRimPolar = rad(60);
+  protected readonly maxRimPolar = rad(45);
   protected readonly reach = 0.42;
-  protected readonly maxLengthFactor = 1.3;
+  protected readonly maxLengthFactor = 1;
+  override readonly lean = rad(45);
   override readonly paperOpening = true;
 
-  /** Squeezes the full circle into the front half. */
-  override azimuth(angle: number): number {
-    return (angle - Math.PI) / 2;
-  }
-
-  protected override lengthFactor(angle: number, dist: number): number {
-    return 1 + 0.3 * dist * Math.abs(Math.sin(this.azimuth(angle)));
-  }
-
-  protected override rimSpan(radius: number): number {
-    return radius * Math.SQRT2;
-  }
-
-  protected override angleFromAround(around: number): number {
-    return clamp(2 * clamp(around, -Math.PI / 2, Math.PI / 2) + Math.PI, 0, TAU - 1e-6);
-  }
-
-  override storedAngle(v: number): number {
-    return clamp(rad(2 * v + 180), 0, TAU - 1e-6);
+  /** Measured upright, because the wrap is tipped with the flowers; the round dome leaves a little paper behind them. */
+  override get paperRimShape(): BouquetShape {
+    return SHAPE_OF.round;
   }
 }
 

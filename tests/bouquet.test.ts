@@ -176,6 +176,14 @@ describe('shape, wrap and rearrange', () => {
     expect(editor.setWrap(b, { paper: 'foil' as never })).toBe(b);
   });
 
+  it('sets the bow and greenery, and refuses unknown ones', () => {
+    const b = base();
+    expect(editor.setWrap(b, { bow: 'star', greenery: 'fern' }).wrap).toEqual({ ...b.wrap, bow: 'star', greenery: 'fern' });
+    expect(editor.setWrap(b, { bow: 'bowtie' as never })).toBe(b);
+    expect(editor.setWrap(b, { greenery: 'moss' as never })).toBe(b);
+    expect(editor.setWrap(b, { bow: b.wrap.bow, greenery: b.wrap.greenery })).toBe(b);
+  });
+
   it('rearrange resets hand adjustments', () => {
     const b = editor.adjust(editor.move(base(), 's1', 2, 0.3), 's1', { tilt: 0.4 });
     expect(editor.rearrange(b).stems).toEqual(base().stems);
@@ -205,6 +213,13 @@ describe('validateBouquet', () => {
     expect(editor.validate(data)).toEqual(base());
   });
 
+  it('gives a bouquet saved before bows and greenery a ribbon bow and no greenery', () => {
+    const data = good();
+    delete data.wrap.bow;
+    delete data.wrap.greenery;
+    expect(editor.validate(data)!.wrap).toEqual({ ...base().wrap, bow: 'ribbon', greenery: 'none' });
+  });
+
   const bad: [string, (d: Record<string, any>) => unknown][] = [
     ['not an object', () => 'hello'],
     ['null', () => null],
@@ -213,6 +228,8 @@ describe('validateBouquet', () => {
     ['missing wrap', (d) => ({ ...d, wrap: undefined })],
     ['unknown paper', (d) => ({ ...d, wrap: { ...d.wrap, paper: 'foil' } })],
     ['unknown ribbon colour', (d) => ({ ...d, wrap: { ...d.wrap, ribbonColour: 'neon' } })],
+    ['unknown bow', (d) => ({ ...d, wrap: { ...d.wrap, bow: 'bowtie' } })],
+    ['unknown greenery', (d) => ({ ...d, wrap: { ...d.wrap, greenery: 'moss' } })],
     ['stems not a list', (d) => ({ ...d, stems: {} })],
     ['no stems', (d) => ({ ...d, stems: [] })],
     ['too many stems', (d) => ({ ...d, stems: Array.from({ length: 41 }, (_, i) => ({ ...d.stems[0], id: `s${i + 1}` })) })],

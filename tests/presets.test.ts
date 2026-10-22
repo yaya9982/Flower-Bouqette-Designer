@@ -3,6 +3,7 @@ import { BouquetEditor, MAX_STEMS } from '../src/bouquet';
 import { Catalog, FLOWERS } from '../src/catalog';
 import { FEATURED_PRESETS, Presets, PRESETS } from '../src/presets';
 import { distance, SHAPE_OF, TAU } from '../src/shapes';
+import { measure, MIN_COVERED } from '../src/compact';
 
 const catalog = new Catalog(FLOWERS);
 const editor = new BouquetEditor(catalog);
@@ -27,12 +28,21 @@ describe('presets', () => {
     }
   });
 
-  it('places the one-sided front in the middle of the stored range', () => {
-    // A flower at the front (0°) is stored at half a turn; a full ring stays inside the stored range.
+  it('places one-sided flowers by view angle like every other shape', () => {
+    // The one-sided dome is the round dome tipped forward, so the front (0°) is stored at 0; a full ring stays in range.
     const front = presets.build({ ...PRESETS[0], shape: 'onesided', groups: [{ f: 'rose', c: 'red', n: 1, d: 0.5, at: 0 } as never] })!;
-    expect(front.stems[0].angle).toBeCloseTo(Math.PI);
+    expect(front.stems[0].angle).toBeCloseTo(0);
     const ring = presets.build({ ...PRESETS[0], shape: 'onesided', groups: [{ f: 'rose', c: 'red', n: 8, d: 0.5 } as never] })!;
     for (const s of ring.stems) expect(s.angle >= 0 && s.angle < TAU).toBe(true);
+  });
+
+  it('every preset is one compact bouquet: a closed face of heads, none floating alone', () => {
+    const loose: string[] = [];
+    for (const { preset, bouquet } of built) {
+      const m = measure(bouquet!.stems, bouquet!.shape, catalog, arranger);
+      if (m.covered < MIN_COVERED || m.isolated > 0) loose.push(`${preset.id}: covered ${m.covered.toFixed(2)}, ${m.isolated} floating`);
+    }
+    expect(loose).toEqual([]);
   });
 
   it('keeps flower heads from sitting inside one another', () => {

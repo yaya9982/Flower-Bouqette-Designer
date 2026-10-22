@@ -1,9 +1,10 @@
-import { NullEngine, Scene, DirectionalLight, ShadowGenerator, Vector3 } from '@babylonjs/core';
+import { NullEngine, PBRMaterial, RawTexture, Scene, DirectionalLight, ShadowGenerator, Texture, Vector3 } from '@babylonjs/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BouquetEditor, type Bouquet } from '../src/bouquet';
 import { Catalog, FLOWERS } from '../src/catalog';
 import { FlowerFactory, FlowerViews, ModelLibrary } from '../src/flowers';
 import { CameraRig, DragSurface } from '../src/scene';
+import type { PaperTextureSource } from '../src/paper-textures';
 import { SHAPE_OF } from '../src/shapes';
 import { WrapView } from '../src/wrap';
 
@@ -119,6 +120,40 @@ describe('WrapView', () => {
     wrap.dispose();
     expect(wrapMeshes()).toEqual([]);
     expect(wrapMaterials()).toEqual([]);
+  });
+});
+
+describe('WrapView paper textures', () => {
+  const paperMaterial = () => scene.materials.find((m) => m.name === 'paperMaterial') as PBRMaterial | undefined;
+  const pixel = () => RawTexture.CreateRGBATexture(new Uint8Array([200, 200, 200, 255]), 1, 1, scene) as Texture;
+  const wrapOf = (paper: 'none' | 'kraft' | 'matte' | 'tissue') => ({ ...editor.createDefault().wrap, paper });
+
+  it('paper gets its fibre and fold maps; no paper has no material; the maps tile', () => {
+    const sources = { base: pixel(), normal: pixel() };
+    const textures: PaperTextureSource = { get: (kind) => (kind === 'none' ? null : sources) };
+    const wrap = new WrapView(scene, shadows, null, textures);
+    wrap.update(wrapOf('kraft'), 'round', 0.12);
+    const paper = paperMaterial()!;
+    expect(paper.albedoTexture).not.toBeNull();
+    expect(paper.bumpTexture).not.toBeNull();
+    expect((paper.albedoTexture as Texture).uScale).toBeGreaterThan(1);
+    wrap.update(wrapOf('none'), 'round', 0.12);
+    expect(paperMaterial()).toBeUndefined();
+  });
+
+  it('keeps the loaded maps when the wrap is rebuilt or removed, so the next paper can use them', () => {
+    const sources = { base: pixel(), normal: pixel() };
+    const wrap = new WrapView(scene, shadows, null, { get: () => sources });
+    wrap.update(wrapOf('kraft'), 'round', 0.12);
+    wrap.update(wrapOf('tissue'), 'round', 0.12);
+    wrap.dispose();
+    expect(sources.base.getInternalTexture()).not.toBeNull();
+    expect(sources.normal.getInternalTexture()).not.toBeNull();
+  });
+
+  it('without a texture source the paper is a plain colour, as before', () => {
+    new WrapView(scene, shadows).update(wrapOf('matte'), 'round', 0.12);
+    expect(paperMaterial()!.albedoTexture).toBeNull();
   });
 });
 

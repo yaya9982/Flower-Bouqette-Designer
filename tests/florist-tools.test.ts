@@ -79,11 +79,37 @@ describe('FloristTools', () => {
 
   it('set_wrap and set_shape change the wrap and shape; unknown values are errors', () => {
     const b = start();
-    const r = tools.run(b, 'set_wrap', { paper: 'matte', paperColour: 'blush', ribbonColour: '' });
+    const r = tools.run(b, 'set_wrap', { paper: 'matte', paperColour: 'blush', ribbonColour: '', bow: '', greenery: '' });
     expect(r.next.wrap).toMatchObject({ paper: 'matte', paperColour: 'blush', ribbonColour: b.wrap.ribbonColour });
-    expect(tools.run(b, 'set_wrap', { paper: 'gold-foil', paperColour: '', ribbonColour: '' }).isError).toBe(true);
+    expect(tools.run(b, 'set_wrap', { paper: 'gold-foil', paperColour: '', ribbonColour: '', bow: '', greenery: '' }).isError).toBe(true);
     expect(tools.run(b, 'set_shape', { shape: 'cascade' }).next.shape).toBe('cascade');
     expect(tools.run(b, 'set_shape', { shape: 'pyramid' }).isError).toBe(true);
+  });
+
+  it('search_flowers says how many flowers matched, and when none do, what exists instead', () => {
+    const b = start();
+    const wide = tools.run(b, 'search_flowers', { query: '', colour: 'pink' }).result as { flowers: unknown[]; total: number };
+    expect(wide.flowers.length).toBeLessThan(wide.total);
+    const none = tools.run(b, 'search_flowers', { query: 'hydrangea', colour: 'orange' }).result as { flowers: unknown[]; note: string };
+    expect(none.flowers).toEqual([]);
+    expect(none.note).toMatch(/hydrangea/);
+    expect(none.note).toMatch(/blue/);
+    const nothing = tools.run(b, 'search_flowers', { query: 'cactus', colour: '' }).result as { note: string };
+    expect(nothing.note).toMatch(/cactus/);
+  });
+
+  it('set_wrap changes the bow and greenery; unknown ones are errors', () => {
+    const b = start();
+    const blank = { paper: '', paperColour: '', ribbonColour: '' };
+    expect(tools.run(b, 'set_wrap', { ...blank, bow: 'star', greenery: 'fern' }).next.wrap).toMatchObject({ bow: 'star', greenery: 'fern' });
+    expect(tools.run(b, 'set_wrap', { ...blank, bow: 'bowtie', greenery: '' }).isError).toBe(true);
+    expect(tools.run(b, 'set_wrap', { ...blank, bow: '', greenery: 'moss' }).isError).toBe(true);
+  });
+
+  it('set_wrap still works for a florist that does not know about bows and greenery yet', () => {
+    const r = tools.run(start(), 'set_wrap', { paper: 'tissue', paperColour: '', ribbonColour: '' });
+    expect(r.isError).toBe(false);
+    expect(r.next.wrap.paper).toBe('tissue');
   });
 
   it('load_preset builds a preset; an unknown one is an error', () => {

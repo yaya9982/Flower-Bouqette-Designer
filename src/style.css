@@ -83,3 +83,6 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 .florist-form { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; padding: 10px; border-top: 1px solid var(--line); }
 .florist-form input { font: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; min-width: 0; }
 .florist-form [hidden] { display: none; }
+/* The flower picture shown beside a row of the "Add flowers" list (showPreview in src/panel.ts). */
+.flower-preview { position: fixed; z-index: 20; width: 128px; height: 128px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 4px 16px rgb(0 0 0 / 0.12); pointer-events: none; }
+.flower-preview[hidden] { display: none; }
