@@ -51,7 +51,7 @@ export function randomSession(rng: Rng, editor: BouquetEditor, presets: Presets,
     } else if (roll < 0.94) {
       call('load_preset', { presetId: pick(rng, PRESETS).id });
     } else {
-      call('set_wrap', { paper: pick(rng, ['none', 'kraft', 'tissue', 'matte']), paperColour: '', ribbonColour: '', bow: pick(rng, ['ribbon', 'star']), greenery: pick(rng, ['none', 'fern', 'eucalyptus', 'leafy']) });
+      call('set_wrap', { paper: pick(rng, ['none', 'kraft', 'tissue', 'matte']), paperColour: '', ribbonColour: '', bow: pick(rng, ['ribbon', 'star']), greenery: pick(rng, ['none', 'few', 'more']) });
     }
   }
   return { bouquet, trace };

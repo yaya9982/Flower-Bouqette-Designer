@@ -8,9 +8,14 @@ export type PaperId = 'none' | 'kraft' | 'matte' | 'tissue';
 export const PAPERS: readonly PaperId[] = ['none', 'kraft', 'matte', 'tissue'];
 export type BowId = 'ribbon' | 'star';
 export const BOWS: readonly BowId[] = ['ribbon', 'star'];
-/** Sprigs tucked in around the rim (src/greenery.ts). */
-export type GreeneryId = 'none' | 'fern' | 'eucalyptus' | 'leafy';
-export const GREENERIES: readonly GreeneryId[] = ['none', 'fern', 'eucalyptus', 'leafy'];
+/** How many leaves are left on the stems (src/greenery.ts). */
+export type GreeneryId = 'none' | 'few' | 'more';
+export const GREENERIES: readonly GreeneryId[] = ['none', 'few', 'more'];
+/** Greenery saved or asked for before it became leaves on the stems: sprigs tucked in around the rim. */
+const OLD_GREENERY: Readonly<Record<string, GreeneryId>> = { fern: 'few', eucalyptus: 'few', leafy: 'more' };
+/** The greenery a saved design or a florist's request means, or undefined if there is no such greenery. */
+export const greeneryOf = (value: unknown): GreeneryId | undefined =>
+  GREENERIES.find((g) => g === value) ?? (typeof value === 'string' && Object.hasOwn(OLD_GREENERY, value) ? OLD_GREENERY[value] : undefined);
 
 export interface Stem {
   id: string;
@@ -99,7 +104,7 @@ export class BouquetEditor {
     return {
       version: 1,
       shape: 'round',
-      wrap: { paper: 'kraft', paperColour: PAPER_COLOURS[0].id, ribbonColour: RIBBON_COLOURS[0].id, bow: 'ribbon', greenery: 'eucalyptus' },
+      wrap: { paper: 'kraft', paperColour: PAPER_COLOURS[0].id, ribbonColour: RIBBON_COLOURS[0].id, bow: 'ribbon', greenery: 'few' },
       stems: this.arranger.autoArrange(stems),
     };
   }
@@ -177,6 +182,7 @@ export class BouquetEditor {
     const shape = d.shape as ShapeId;
     // Saved before bows and greenery existed: the bow it had then, and no greenery.
     const wrap = typeof d.wrap === 'object' && d.wrap !== null ? { bow: 'ribbon', greenery: 'none', ...d.wrap } : d.wrap;
+    if (typeof wrap === 'object' && wrap !== null) (wrap as Record<string, unknown>).greenery = greeneryOf((wrap as Record<string, unknown>).greenery) ?? (wrap as Record<string, unknown>).greenery;
     const rawStems = d.stems;
     if (d.version !== 1 || !SHAPES.includes(shape) || !isValidWrap(wrap) || !Array.isArray(rawStems)) return null;
     if (rawStems.length < MIN_STEMS || rawStems.length > MAX_STEMS) return null;

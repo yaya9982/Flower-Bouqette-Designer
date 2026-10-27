@@ -1,8 +1,8 @@
-import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { join, resolve, sep } from 'node:path';
 import type { BouquetEditor } from '../src/bouquet';
 import type { Catalog } from '../src/catalog';
-import { priceBouquet } from '../src/pricing';
+import { formatCents, priceBouquet } from '../src/pricing';
 import { parseCheckout, type OrderStore, type StoredOrder } from './orders';
 import { buildOrderBody, type PayPalApi } from './paypal';
 
@@ -62,6 +62,10 @@ async function capture(store: OrderStore, paypal: PayPalApi, paypalOrderId: stri
     if (result.status !== 'COMPLETED') throw error;
   }
   if (result.status !== 'COMPLETED') return { status: 402, body: { error: `Payment not completed (${result.status}).` } };
+  // The server made the order from its own quote, so anything else captured is not what was sold.
+  if ((result.amount !== null && result.amount !== formatCents(order.quote.totalCents)) || (result.currency !== null && result.currency !== 'USD')) {
+    return { status: 402, body: { error: 'The amount paid does not match the order. Contact the shop.' } };
+  }
   return paidReply(store.update(order.ref, { status: 'PAID', captureId: result.captureId }));
 }
 
@@ -96,10 +100,25 @@ export class RateLimiter {
 
 /** Whether the florist board key sent matches the shop's. A missing or empty shop key means the board is closed. */
 function keyMatches(expected: string, given: string | undefined): boolean {
-  if (!expected || !given) return false;
-  const a = Buffer.from(expected);
-  const b = Buffer.from(given);
-  return a.length === b.length && timingSafeEqual(a, b);
+  if (expected.length < MIN_FLORIST_KEY || !given) return false;
+  // Hashed first, so the comparison takes the same time and does not show the key's length.
+  const hash = (text: string) => createHash('sha256').update(text).digest();
+  return timingSafeEqual(hash(expected), hash(given));
+}
+
+/** A shorter key is too easy to guess, so the board stays closed until a longer one is set. */
+export const MIN_FLORIST_KEY = 16;
+
+/**
+ * Who is calling, for the rate limits. Behind a proxy (TRUST_PROXY) every connection comes from the proxy, so the
+ * address it appended to X-Forwarded-For is used: the last entry, because earlier ones were written by the caller.
+ */
+export function clientIp(remote: string | undefined, forwarded: string | string[] | undefined, trustProxy: boolean): string {
+  if (trustProxy && forwarded) {
+    const last = String(Array.isArray(forwarded) ? forwarded.at(-1) : forwarded).split(',').at(-1)?.trim();
+    if (last) return last;
+  }
+  return remote ?? '?';
 }
 
 /** The florist board's routes under /api/board. Snapshots are served separately, as files. */

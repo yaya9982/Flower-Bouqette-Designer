@@ -9,6 +9,8 @@ export interface SurfacePos { angle: number; dist: number }
 /** Where every stem crosses and the ribbon is tied. */
 export const BINDING: Vec3 = { x: 0, y: 0.25, z: 0 };
 export const TAU = Math.PI * 2;
+/** How far below the head's centre a stem model ends, as a share of the head's diameter, so its sepals sit under the head. */
+export const SEPALS_BELOW_HEAD = 0.3;
 /** Height setting a flower starts at: heads sit low, close to the paper's edge. */
 export const DEFAULT_HEIGHT = -0.6;
 

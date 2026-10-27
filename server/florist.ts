@@ -44,7 +44,7 @@ export const TOOLS: Anthropic.Tool[] = [
     paperColour: text('kraft, white, blush, sage, black or red.'),
     ribbonColour: text('ivory, red, blush, gold, navy, sage, lilac or orange.'),
     bow: text('ribbon (a classic bow with tails) or star (a gift-box star bow).'),
-    greenery: text('none, fern, eucalyptus or leafy: foliage tucked in around the flowers, free of charge.'),
+    greenery: text('none, few or more: how many leaves are left on the flower stems (florists strip most), free of charge.'),
   }),
   tool('set_shape', 'Change the bouquet shape.', { shape: { type: 'string', description: 'The shape.', enum: ['round', 'cascade', 'loose', 'onesided'] } }),
   tool('rearrange', 'Space the flowers out neatly again.'),
@@ -110,6 +110,12 @@ export class FloristSessions {
     const found = this.open(req.sessionId);
     if ('error' in found) return found;
     const { id, session } = found;
+    // A refused first request must not leave an empty chat behind: they would crowd real customers out of the 200 places.
+    const isNew = req.sessionId === undefined;
+    const refuse = (error: string) => {
+      if (isNew) this.sessions.delete(id);
+      return { error };
+    };
     if (session.busy) return { error: 'The florist is still working on your last message.' };
     // Kept so a failed, refused or cut-off call can be undone: the conversation goes back to how it was before.
     const before = { length: session.messages.length, pending: session.pending, texts: session.texts, calls: session.callsThisText };
@@ -122,7 +128,7 @@ export class FloristSessions {
 
     if (typeof req.text === 'string') {
       const text = req.text.trim();
-      if (!text || text.length > MAX_TEXT) return { error: `Messages can be 1 to ${MAX_TEXT} characters.` };
+      if (!text || text.length > MAX_TEXT) return refuse(`Messages can be 1 to ${MAX_TEXT} characters.`);
       if (session.pending.length) return { error: 'The florist is still working; wait for it to finish.' };
       if (session.texts >= MAX_TEXTS) return { error: 'This chat is full. Reload the page to start a new one.' };
       session.texts++;
@@ -130,10 +136,10 @@ export class FloristSessions {
       session.messages.push({ role: 'user', content: text });
     } else if (Array.isArray(req.toolResults)) {
       const results = req.toolResults;
-      if (!results.every((r) => typeof r === 'object' && r !== null && typeof r.toolUseId === 'string')) return { error: 'Malformed tool results.' };
+      if (!results.every((r) => typeof r === 'object' && r !== null && typeof r.toolUseId === 'string')) return refuse('Malformed tool results.');
       const ids = results.map((r) => r.toolUseId);
       if (!session.pending.length || ids.length !== session.pending.length || !session.pending.every((p) => ids.includes(p))) {
-        return { error: 'Those tool results do not match what the florist asked for.' };
+        return refuse('Those tool results do not match what the florist asked for.');
       }
       if (results.some((r) => typeof r.content !== 'string' || r.content.length > MAX_RESULT)) return { error: 'A tool result is too large.' };
       session.messages.push({
@@ -145,7 +151,7 @@ export class FloristSessions {
       });
       session.pending = [];
     } else {
-      return { error: 'Send a message or tool results.' };
+      return refuse('Send a message or tool results.');
     }
 
     if (session.callsThisText >= MAX_CALLS_PER_TEXT) {
@@ -184,6 +190,7 @@ export class FloristSessions {
       return { sessionId: id, text, toolCalls, done: toolCalls.length === 0 };
     } catch (error) {
       rollBack();
+      if (isNew && !session.messages.length) this.sessions.delete(id);
       throw error;
     } finally {
       session.busy = false;

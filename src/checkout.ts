@@ -30,6 +30,8 @@ export class Checkout {
   private readonly buttons = document.createElement('div');
   private readonly status = document.createElement('p');
   private readonly payLaterMessage = document.createElement('paypal-message');
+  /** A payment is under way, so a second click (double-click, another button) does not start a second order. */
+  private paying = false;
 
   constructor(
     private readonly root: HTMLElement,
@@ -74,9 +76,9 @@ export class Checkout {
       });
       const methods = await sdk.findEligibleMethods({ currencyCode: 'USD' });
       const callbacks = {
-        onApprove: (data: { orderId: string }) => this.capture(data.orderId),
-        onCancel: () => this.say('Payment cancelled. Your bouquet is still here.'),
-        onError: (e: unknown) => this.say(`Payment did not go through: ${(e as Error)?.message ?? e}`),
+        onApprove: (data: { orderId: string }) => this.capture(data.orderId).finally(() => { this.paying = false; }),
+        onCancel: () => { this.paying = false; this.say('Payment cancelled. Your bouquet is still here.'); },
+        onError: (e: unknown) => { this.paying = false; this.say(`Payment did not go through: ${(e as Error)?.message ?? e}`); },
       };
       if (methods.isEligible('paypal')) {
         this.addButton(document.createElement('paypal-button'), sdk.createPayPalOneTimePaymentSession(callbacks));
@@ -119,13 +121,17 @@ export class Checkout {
 
   private addButton(button: HTMLElement, session: PaymentSession): void {
     button.addEventListener('click', () => {
-      if (!this.date.reportValidity()) return;
+      if (this.paying || !this.date.reportValidity()) return;
+      this.paying = true;
       // Read the design now. The order request is started but not awaited before start(): awaiting first can lose
       // the click's permission to open PayPal's popup.
       const bouquet = this.design();
       const order = this.createOrder(bouquet);
       this.say('Opening PayPal…');
-      session.start({ presentationMode: 'auto' }, order).catch((e: Error) => this.say(`Payment did not start: ${e.message}`));
+      session.start({ presentationMode: 'auto' }, order).catch((e: Error) => {
+        this.paying = false;
+        this.say(`Payment did not start: ${e.message}`);
+      });
     });
     this.buttons.append(button);
   }
@@ -145,7 +151,7 @@ export class Checkout {
     this.say('Confirming your payment…');
     try {
       const paid = await postJson(`/api/orders/${encodeURIComponent(orderId)}/capture`);
-      this.say(`Paid, thank you! Order ${paid.ref.slice(0, 11)} for $${formatCents(paid.totalCents)} is on its way to the florist.`);
+      this.say(`Paid, thank you! Order ${String(paid.ref ?? '').slice(0, 11)} for $${formatCents(paid.totalCents)} is on its way to the florist.`);
     } catch (error) {
       this.say((error as Error).message);
     }

@@ -10,6 +10,7 @@ import type { Catalog } from './catalog';
 import { FlowerFactory, FlowerViews, ModelLibrary, partModel, v3 } from './flowers';
 import { PaperTextures } from './paper-textures';
 import { BINDING, SHAPE_OF, TAU, type ShapeId } from './shapes';
+import { LEAF_FILE } from './greenery';
 import { WrapView } from './wrap';
 
 const BACKGROUND = '#f5f3ef';
@@ -216,13 +217,15 @@ export class BouquetView {
     this.models = new ModelLibrary(scene, () => {
       if (this.lastRender) this.render(this.lastRender.bouquet, this.lastRender.selectedId);
     });
-    this.flowers = new FlowerViews(this.factory, this.models, catalog, partModel('stem.glb'));
+    this.flowers = new FlowerViews(this.factory, this.models, catalog, partModel('stem.glb'), partModel(LEAF_FILE));
     this.highlight = new HighlightLayer('highlight', scene);
     this.drag = new DragSurface(scene);
     this.wrap = new WrapView(scene, shadows, this.models, new PaperTextures(scene));
 
     engine.runRenderLoop(this.draw);
     window.addEventListener('resize', this.onResize);
+    window.addEventListener('blur', this.abandonPress);
+    engine.getRenderingCanvas()?.addEventListener('pointercancel', this.abandonPress);
     this.pointerObserver = scene.onPointerObservable.add(this.onPointer);
   }
 
@@ -240,7 +243,7 @@ export class BouquetView {
     this.currentRadius = radius;
     this.drag.update(bouquet.shape, radius, this.dragHeight);
     this.applyHighlight(selectedId);
-    this.wrap.update(bouquet.wrap, bouquet.shape, radius, bouquet.stems.length);
+    this.wrap.update(bouquet.wrap, bouquet.shape, radius);
     this.rig.follow(reach, this.ground.position.y);
   }
 
@@ -269,6 +272,8 @@ export class BouquetView {
   dispose(): void {
     this.scene.onPointerObservable.remove(this.pointerObserver);
     window.removeEventListener('resize', this.onResize);
+    window.removeEventListener('blur', this.abandonPress);
+    this.engine.getRenderingCanvas()?.removeEventListener('pointercancel', this.abandonPress);
     this.engine.stopRenderLoop(this.draw);
     this.rig.detach();
     // Flower copies go before the models they were copied from.
@@ -284,6 +289,18 @@ export class BouquetView {
 
   private readonly draw = () => this.scene.render();
   private readonly onResize = () => this.engine.resize();
+
+  /**
+   * A press whose button-up never arrives (the window lost focus, a touch was cancelled) is ended as if released,
+   * or the camera stays detached and no later press would be accepted.
+   */
+  private readonly abandonPress = () => {
+    const press = this.press;
+    if (!press) return;
+    this.press = null;
+    if (press.canDrag) this.rig.attach();
+    if (press.dragging) this.onDragEnd();
+  };
 
   private applyHighlight(selectedId: string | null): void {
     const root = (selectedId ? this.flowers.root(selectedId) : null) ?? null;

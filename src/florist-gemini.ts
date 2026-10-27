@@ -13,11 +13,22 @@ interface Content { role: 'user' | 'model'; parts: Part[] }
 
 const MAX_CALLS_PER_TEXT = 12;
 
+/** A tool result is JSON from our own tools; anything else is passed on as text rather than crashing the chat. */
+function parseResult(content: string): unknown {
+  try {
+    return JSON.parse(content);
+  } catch {
+    return { text: content };
+  }
+}
+
 export class GeminiFlorist {
   private contents: Content[] = [];
   private sessionId = '';
   private pending: { id: string; name: string; callId?: string }[] = [];
   private callsThisText = 0;
+  /** Where the customer's latest message starts in `contents`: a step that gives up goes back to here. */
+  private turnStart = 0;
 
   constructor(private readonly url: string, private readonly fetchFn: typeof fetch = (...a) => fetch(...a)) {}
 
@@ -26,6 +37,7 @@ export class GeminiFlorist {
     const before = this.contents.length;
     if (typeof req.text === 'string') {
       this.callsThisText = 0;
+      this.turnStart = before;
       this.contents.push({ role: 'user', parts: [{ text: req.text }] });
     } else {
       const results = req.toolResults ?? [];
@@ -33,7 +45,8 @@ export class GeminiFlorist {
         role: 'user',
         parts: this.pending.map((p) => {
           const r = results.find((x) => x.toolUseId === p.id);
-          const response = r ? (r.isError ? { error: JSON.parse(r.content) } : JSON.parse(r.content)) : { error: 'Not run.' };
+          const parsed = r ? parseResult(r.content) : { error: 'Not run.' };
+          const response = r?.isError ? { error: parsed } : parsed;
           return { functionResponse: { name: p.name, response, ...(p.callId ? { id: p.callId } : {}) } };
         }),
       });
@@ -53,7 +66,8 @@ export class GeminiFlorist {
       throw error;
     }
     if (!json.content) {
-      this.contents.length = before;
+      // Back to before this whole message, not just this step: the model's earlier tool calls would be left without answers.
+      this.contents.length = typeof req.text === 'string' ? before : this.turnStart;
       return { sessionId: this.sessionId, text: json.finishReason === 'MAX_TOKENS' ? 'Sorry, I lost my thread. Could you say that again?' : "Sorry, I can't help with that one.", toolCalls: [], done: true };
     }
 
@@ -73,6 +87,7 @@ export class GeminiFlorist {
 
   private reset(): void {
     this.contents = [];
+    this.turnStart = 0;
     this.pending = [];
     this.sessionId = crypto.randomUUID();
   }

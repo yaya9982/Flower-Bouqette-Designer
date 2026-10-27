@@ -116,6 +116,9 @@ export class Designer implements PanelActions {
   private readonly onKey = (event: Event) => {
     const e = event as KeyboardEvent;
     if (!(e.ctrlKey || e.metaKey)) return;
+    // In a text box, Ctrl+Z is the box's own undo (the card message, the florist's chat), not the bouquet's.
+    const target = e.target as HTMLElement | null;
+    if (target && (target.tagName === 'TEXTAREA' || (target.tagName === 'INPUT' && (target as HTMLInputElement).type !== 'range') || target.isContentEditable)) return;
     const key = e.key.toLowerCase();
     if (key === 'z' && !e.shiftKey) this.undo();
     else if (key === 'y' || (key === 'z' && e.shiftKey)) this.redo();

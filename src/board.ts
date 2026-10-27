@@ -65,8 +65,14 @@ function card(order: Order): HTMLElement {
     button.type = 'button';
     button.addEventListener('click', async () => {
       button.disabled = true;
-      const res = await api(`/api/board/orders/${order.ref}/dispatch`, 'POST');
-      if (!res.ok) status.textContent = (await res.json().catch(() => ({}))).error ?? 'Could not mark it dispatched.';
+      try {
+        const res = await api(`/api/board/orders/${order.ref}/dispatch`, 'POST');
+        if (!res.ok) status.textContent = (await res.json().catch(() => ({}))).error ?? 'Could not mark it dispatched.';
+      } catch (error) {
+        status.textContent = `Could not mark it dispatched: ${(error as Error).message}`;
+      }
+      // Drawn again even when nothing changed, so a button that failed is enabled again.
+      shownJson = '';
       await refresh();
     });
     info.append(button);

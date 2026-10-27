@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -7,12 +7,12 @@ import { Catalog, FLOWERS } from '../src/catalog';
 import { formatCents, priceBouquet } from '../src/pricing';
 import { OrderStore, parseCheckout } from '../server/orders';
 import { buildOrderBody, PayPalApi } from '../server/paypal';
-import { boardHandler, captureHandler, createOrderHandler, pathOf, RateLimiter, staticFile } from '../server/routes';
+import { boardHandler, captureHandler, clientIp, createOrderHandler, pathOf, RateLimiter, staticFile } from '../server/routes';
 
 const catalog = new Catalog(FLOWERS);
 const editor = new BouquetEditor(catalog);
 const NOW = new Date('2026-10-22T03:00:00Z');
-const PNG = 'data:image/png;base64,' + Buffer.from('fake png').toString('base64');
+const PNG = 'data:image/png;base64,' + Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('fake png')]).toString('base64');
 
 const dirs: string[] = [];
 function tempStore() {
@@ -74,6 +74,8 @@ describe('parseCheckout', () => {
     ['a date in the past', { deliveryDate: '2026-10-01' }],
     ['a date more than 60 days ahead', { deliveryDate: '2027-01-30' }],
     ['a badly written date', { deliveryDate: '25/10/2026' }],
+    ['a date that does not exist', { deliveryDate: '2026-11-31' }],
+    ['a snapshot that says PNG but is not one', { snapshot: 'data:image/png;base64,' + Buffer.from('<html>not a png</html>').toString('base64') }],
     ['a snapshot that is not a PNG', { snapshot: 'data:image/jpeg;base64,AAAA' }],
     ['a snapshot over 2 MB', { snapshot: 'data:image/png;base64,' + 'A'.repeat(2_900_000) }],
   ])('refuses %s', (_, patch) => {
@@ -130,7 +132,7 @@ describe('order routes', () => {
 });
 
 describe('florist board', () => {
-  const KEY = 'board-key-123';
+  const KEY = 'board-key-0123456789';
   async function paidStore() {
     const store = tempStore();
     const { api } = fakePayPal();
@@ -221,5 +223,68 @@ describe('review fixes', () => {
     expect(a.body).toMatchObject({ status: 'PAID' });
     expect(b.body).toMatchObject({ status: 'PAID' });
     expect(calls.filter((c) => c.url.endsWith('/capture'))).toHaveLength(1);
+  });
+});
+
+describe('capture checks', () => {
+  /** PayPal says the order is COMPLETED, but the capture inside it is held (or for another amount). */
+  function capturedAs(capture: Record<string, unknown>) {
+    const fetchFn = (async (input: string | URL) => {
+      const url = String(input);
+      if (url.endsWith('/v1/oauth2/token')) return Response.json({ access_token: 't', expires_in: 3600 });
+      if (url.endsWith('/capture')) return Response.json({ id: 'PP1', status: 'COMPLETED', purchase_units: [{ payments: { captures: [{ id: 'CAP1', ...capture }] } }] });
+      return Response.json({ id: 'PP1', status: 'CREATED' }, { status: 201 });
+    }) as typeof fetch;
+    return new PayPalApi({ clientId: 'i', clientSecret: 's', base: 'https://x' }, fetchFn);
+  }
+  const total = formatCents(priceBouquet(editor.createDefault(), catalog).totalCents);
+
+  it('a capture PayPal is holding (PENDING) is not marked paid', async () => {
+    const store = tempStore();
+    const api = capturedAs({ status: 'PENDING', amount: { currency_code: 'USD', value: total } });
+    await createOrderHandler({ store, paypal: api, editor, catalog, now: () => NOW }, checkout());
+    const reply = await captureHandler(store, api, 'PP1');
+    expect(reply.status).toBe(402);
+    expect(store.byPayPalId('PP1')?.status).toBe('CREATED');
+  });
+
+  it('a capture for a different amount is not marked paid', async () => {
+    const store = tempStore();
+    const api = capturedAs({ status: 'COMPLETED', amount: { currency_code: 'USD', value: '0.01' } });
+    await createOrderHandler({ store, paypal: api, editor, catalog, now: () => NOW }, checkout());
+    const reply = await captureHandler(store, api, 'PP1');
+    expect(reply.status).toBe(402);
+    expect(store.byPayPalId('PP1')?.status).toBe('CREATED');
+  });
+
+  it('a completed capture for the right amount is paid', async () => {
+    const store = tempStore();
+    const api = capturedAs({ status: 'COMPLETED', amount: { currency_code: 'USD', value: total } });
+    await createOrderHandler({ store, paypal: api, editor, catalog, now: () => NOW }, checkout());
+    expect((await captureHandler(store, api, 'PP1')).body).toMatchObject({ status: 'PAID' });
+  });
+});
+
+describe('OrderStore writes', () => {
+  it('leaves no half-written file behind', () => {
+    const store = tempStore();
+    const b = editor.createDefault();
+    store.create({ ref: 'bq_1', paypalOrderId: 'PP1', status: 'CREATED', bouquet: b, quote: priceBouquet(b, catalog), cardMessage: '', deliveryDate: '2026-10-25', createdAt: NOW.toISOString(), captureId: null });
+    expect(readdirSync((store as any).dir).sort()).toEqual(['orders.json', 'snapshots']);
+  });
+});
+
+describe('florist key and client address', () => {
+  it('a short florist key closes the board, even when it is typed correctly', () => {
+    const store = tempStore();
+    expect(boardHandler(store, 'florist', 'florist', 'GET', '/api/board/orders').status).toBe(401);
+    expect(boardHandler(store, 'a-long-enough-key', 'a-long-enough-key', 'GET', '/api/board/orders').status).toBe(200);
+  });
+
+  it('clientIp ignores X-Forwarded-For unless a proxy is trusted, then uses the entry the proxy added', () => {
+    expect(clientIp('10.0.0.1', '6.6.6.6', false)).toBe('10.0.0.1');
+    expect(clientIp('10.0.0.1', '6.6.6.6, 203.0.113.9', true)).toBe('203.0.113.9');
+    expect(clientIp('10.0.0.1', undefined, true)).toBe('10.0.0.1');
+    expect(clientIp(undefined, undefined, false)).toBe('?');
   });
 });

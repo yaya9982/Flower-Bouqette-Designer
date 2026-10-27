@@ -8,14 +8,25 @@ export interface PayPalEnv {
 }
 
 export interface CaptureResult {
+  /** The order's status, or the capture's when the money is held (PENDING) and the order still reads COMPLETED. */
   status: string;
   captureId: string | null;
+  /** What was captured, as PayPal writes it ("12.50"), when PayPal says. */
+  amount: string | null;
+  currency: string | null;
 }
 
 function captureOf(json: any): CaptureResult {
   const capture = json.purchase_units?.[0]?.payments?.captures?.[0];
-  return { status: String(json.status), captureId: capture?.id ?? null };
+  const held = capture?.status && capture.status !== 'COMPLETED';
+  return {
+    status: held ? String(capture.status) : String(json.status), captureId: capture?.id ?? null,
+    amount: capture?.amount?.value ?? null, currency: capture?.amount?.currency_code ?? null,
+  };
 }
+
+/** Longest wait for PayPal: a stalled call must not hold a customer's request (or a capture lock) open. */
+const TIMEOUT_MS = 15_000;
 
 const money = (cents: number) => ({ currency_code: 'USD', value: formatCents(cents) });
 
@@ -60,7 +71,7 @@ export class PayPalApi {
         authorization: `Bearer ${await this.accessToken()}`, 'content-type': 'application/json',
         ...(requestId ? { 'paypal-request-id': requestId } : {}),
       },
-      body: body ? JSON.stringify(body) : undefined,
+      body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(`PayPal ${path} answered ${res.status}: ${json.name ?? ''} ${json.message ?? ''}`.trim());
@@ -74,7 +85,7 @@ export class PayPalApi {
     const res = await this.fetchFn(`${this.env.base}/v1/oauth2/token`, {
       method: 'POST',
       headers: { authorization: `Basic ${basic}`, 'content-type': 'application/x-www-form-urlencoded' },
-      body: 'grant_type=client_credentials',
+      body: 'grant_type=client_credentials', signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     if (!res.ok) throw new Error(`PayPal token request answered ${res.status}`);
     const json = await res.json() as { access_token: string; expires_in: number };

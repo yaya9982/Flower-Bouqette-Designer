@@ -1,11 +1,11 @@
-"""Prepares the non-flower models (bows, stem, greenery) from flowers_sources/sketchfab/parts/ into public/models/parts/.
+"""Prepares the non-flower models (bows, stem, leaf) from flowers_sources/sketchfab/parts/ into public/models/parts/.
 
-    python tools/prepare_parts.py
+    python tools/prepare_parts.py [part ...]
 
 Each source is untrusted and read with prepare_models.load (size and header checks). Output conventions, which
 src/wrap.ts, src/flowers.ts and src/greenery.ts rely on:
 - bows: 1 unit wide, the knot (or the star's base) at the origin, facing -Z (the front), part 'petal' for the ribbon tint.
-- stem and sprigs: start at the origin and run 1 unit up +Y.
+- stem and leaf: start at the origin and run 1 unit up +Y (the leaf's blade spreads along X).
 Credits for every part are in public/credits.html (the "other models" list) and must match PARTS below.
 """
 import sys
@@ -20,7 +20,9 @@ SRC = pm.SRC / 'sketchfab' / 'parts'
 OUT = pm.OUT / 'parts'
 TEXTURE_SIZE = 512
 
-# pick: 'all' pieces, or the 'largest' single piece (one frond or leaf out of a clump).
+# pick: 'all' pieces, or the 'largest' single piece (one frond or leaf out of a clump). drop_longest: first set aside the
+# longest piece (the rose's stem), so 'largest' then finds its longest leaf stalk; with_nearest adds the blade on it.
+# trim: cut away this lowest share of a sprig (a bare stalk) and fit what is left.
 # base: which end of a sprig is its stalk: 'low' (lowest in the source) or 'centre' (nearest the source's middle,
 # where a clump's fronds meet). colour: replaces a source colour that is unusable (black, untextured).
 PARTS = {
@@ -28,16 +30,8 @@ PARTS = {
     # Object_2 is a flat disc under the star.
     'bow-star': dict(file='present_bow.glb', kind='star', skip_nodes=('Object_2',), max_triangles=8000),
     'stem': dict(file='modular_flower_stem.glb', kind='sprig', base='low', max_triangles=1500),
-    'fern-low-poly': dict(file='low_poly_fern.glb', kind='sprig', pick='largest', base='centre'),
-    'fern-polypody': dict(file='realistic_hd_common_polypody_fern_4355.glb', kind='sprig', pick='largest', base='centre'),
-    'fern-pack': dict(file='fern_pack.glb', kind='sprig', pick='largest', base='centre', colour=[0.035, 0.11, 0.025, 1]),  # linear, about #355e2b
-    'fern-leaf': dict(file='fern_leaf_lonefennec.glb', kind='sprig', base='centre'),
-    'eucalyptus-leaf': dict(file='eucalyptus_l.glb', kind='sprig', base='low', max_triangles=1500),
-    'leaves': dict(file='leaves.glb', kind='sprig', pick='largest', base='centre', max_triangles=1500),
-    'twig': dict(file='daun.glb', kind='sprig', base='low'),
-    'trailing-leaves': dict(file='branches_with_leaves.glb', kind='sprig', base='centre'),
-    # The stem and leaves of the rose; its head (material Petals) is left out.
-    'rose-leaves': dict(file='smcafee_red_rose.glb', kind='sprig', base='low', materials=('Leaves',)),
+    # One leaf on its short stalk, cut from the same rose: the leaf drawn on the flower stems (src/greenery.ts).
+    'rose-leaf': dict(file='smcafee_red_rose.glb', kind='sprig', base='low', materials=('Leaves',), drop_longest=True, pick='largest', with_nearest=True, trim=0.45),
 }
 
 
@@ -57,8 +51,18 @@ def gather(g, blob, cfg):
     if not pieces:
         raise ValueError(f"{cfg['file']}: nothing picked")
     centre = np.concatenate([p['pos'] for p in pieces]).mean(0)
+    pieces_all = pieces
+    if cfg.get('drop_longest') and len(pieces) > 1:
+        longest = max(pieces, key=lambda p: np.ptp(p['pos'], axis=0).max())
+        pieces = pieces_all = [p for p in pieces if p is not longest]
     if cfg.get('pick') == 'largest':
-        pieces = [max(pieces, key=lambda p: np.ptp(p['pos'], axis=0).max())]
+        largest = max(pieces, key=lambda p: np.ptp(p['pos'], axis=0).max())
+        pieces = [largest]
+        if cfg.get('with_nearest'):
+            # In the rose model a leaf's stalk and its blade are separate pieces; the blade is the piece nearest the stalk.
+            others = [p for p in pieces_all if p is not largest]
+            gap = lambda q: np.min(np.linalg.norm(q['pos'][:, None, :] - largest['pos'][None, :, :], axis=2))
+            pieces.append(min(others, key=gap))
     # One output part needs one material; a piece in another material keeps its shape but takes the first one's look.
     part, count = dict(material=pieces[0]['material'], pos=[], nrm=[], uv=[], tri=[]), 0
     for p in pieces:
@@ -95,6 +99,16 @@ def fit_sprig(part, centre, base):
     return part
 
 
+def trimmed(part, cut):
+    """A fitted sprig without its lowest `cut` share (a long bare stalk), then 1 unit long again with its foot at the origin."""
+    keep = part['pos'][part['tri'], 1].max(axis=1) >= cut
+    used, remap = np.unique(part['tri'][keep], return_inverse=True)
+    pos = part['pos'][used]
+    height = pos[:, 1].max() - pos[:, 1].min()
+    pos = (pos - [0, pos[:, 1].min(), 0]) / height
+    return {**part, 'pos': pos, 'nrm': part['nrm'][used], 'uv': part['uv'][used], 'tri': remap.reshape(-1, 3)}
+
+
 def fit_bow(part, star):
     """1 unit wide, facing -Z. The ribbon bow's knot (its biggest piece is the knot) or the star's base at the origin."""
     if star:
@@ -118,6 +132,8 @@ def build(name, cfg):
     if 'colour' in cfg:
         g['materials'][part['material']].setdefault('pbrMetallicRoughness', {})['baseColorFactor'] = cfg['colour']
     part = fit_sprig(part, centre, cfg['base']) if cfg['kind'] == 'sprig' else fit_bow(part, cfg['kind'] == 'star')
+    if 'trim' in cfg:
+        part = trimmed(part, cfg['trim'])
     label = 'petal' if cfg['kind'] in ('bow', 'star') else 'leaf'
     parts = pm.decimate({label: part}, cfg.get('max_triangles', 3000))
     target = OUT / f'{name}.glb'
@@ -132,5 +148,6 @@ def build(name, cfg):
 
 
 if __name__ == '__main__':
-    for name, cfg in PARTS.items():
-        build(name, cfg)
+    # Optionally only the parts named on the command line.
+    for name in sys.argv[1:] or PARTS:
+        build(name, PARTS[name])

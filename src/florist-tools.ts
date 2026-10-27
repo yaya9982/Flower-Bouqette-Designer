@@ -1,4 +1,4 @@
-import { BOWS, GREENERIES, PAPERS, SHAPES, type Bouquet, type BouquetEditor, type BowId, type GreeneryId, type PaperId, type ShapeId, type Wrap } from './bouquet';
+import { BOWS, GREENERIES, greeneryOf, PAPERS, SHAPES, type Bouquet, type BouquetEditor, type BowId, type PaperId, type ShapeId, type Wrap } from './bouquet';
 import { PAPER_COLOURS, RIBBON_COLOURS, type Catalog, type FlowerType } from './catalog';
 import { measure, MIN_FOR_OUTLINE } from './compact';
 import type { Presets } from './presets';
@@ -154,7 +154,7 @@ export class FloristTools {
         }
         const { next, done } = repeat(b, n, (x) => editor.add(x, type.id, colourId || undefined));
         if (done === 0) throw new BadInput('The bouquet is full (40 flowers). Remove some first.');
-        return { next, result: { added: done } };
+        return { next, result: { added: done, ...(done < n ? { capped: true } : {}) } };
       }
 
       case 'remove_flowers': {
@@ -183,6 +183,7 @@ export class FloristTools {
         const fromId = str(input, 'fromFlowerId');
         const to = this.flower(str(input, 'toFlowerId'));
         const n = int(input, 'count', 1, 40);
+        if (fromId === to.id) throw new BadInput('Those are the same flower. Pick a different one to swap to.');
         this.inBouquet(b, fromId);
         const targets = b.stems.filter((s) => s.flower === fromId).slice(0, n);
         const next = targets.reduce((x, s) => editor.swap(x, s.id, to.id), b);
@@ -200,13 +201,15 @@ export class FloristTools {
         const bow = input.bow === undefined ? '' : str(input, 'bow');
         const greenery = input.greenery === undefined ? '' : str(input, 'greenery');
         if (bow && !BOWS.includes(bow as BowId)) throw new BadInput(`Bow must be one of: ${BOWS.join(', ')}.`);
-        if (greenery && !GREENERIES.includes(greenery as GreeneryId)) throw new BadInput(`Greenery must be one of: ${GREENERIES.join(', ')}.`);
+        // The old words (fern, eucalyptus, leafy) still work: they mean leaves on the stems now.
+        const greeneryId = greenery ? greeneryOf(greenery) : undefined;
+        if (greenery && !greeneryId) throw new BadInput(`Greenery must be one of: ${GREENERIES.join(', ')}.`);
         const patch: Partial<Wrap> = {};
         if (paper) patch.paper = paper as PaperId;
         if (paperColour) patch.paperColour = paperColour;
         if (ribbonColour) patch.ribbonColour = ribbonColour;
         if (bow) patch.bow = bow as BowId;
-        if (greenery) patch.greenery = greenery as GreeneryId;
+        if (greeneryId) patch.greenery = greeneryId;
         return { next: editor.setWrap(b, patch), result: { ok: true } };
       }
 

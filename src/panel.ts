@@ -68,7 +68,7 @@ function hidePreview(): void {
 }
 
 const BOW_NAMES: Record<BowId, string> = { ribbon: 'Ribbon bow', star: 'Gift star' };
-const GREENERY_NAMES: Record<GreeneryId, string> = { none: 'No greenery', fern: 'Ferns', eucalyptus: 'Eucalyptus leaves', leafy: 'Leafy sprigs' };
+const GREENERY_NAMES: Record<GreeneryId, string> = { none: 'No leaves', few: 'A few leaves', more: 'More leaves' };
 
 type Child = Node | string;
 
@@ -259,7 +259,7 @@ export class Panel {
         swatches('paper-colour', 'Paper colour', PAPER_COLOURS, bouquet.wrap.paperColour, (id) => actions.setWrap({ paperColour: id })),
         swatches('ribbon-colour', 'Ribbon colour', RIBBON_COLOURS, bouquet.wrap.ribbonColour, (id) => actions.setWrap({ ribbonColour: id })),
         select('bow', 'Bow', (Object.keys(BOW_NAMES) as BowId[]).map((id) => ({ id, name: BOW_NAMES[id] })), bouquet.wrap.bow, (id) => actions.setWrap({ bow: id as BowId })),
-        select('greenery', 'Greenery (free)', (Object.keys(GREENERY_NAMES) as GreeneryId[]).map((id) => ({ id, name: GREENERY_NAMES[id] })), bouquet.wrap.greenery, (id) => actions.setWrap({ greenery: id as GreeneryId })),
+        select('greenery', 'Leaves on the stems (free)', (Object.keys(GREENERY_NAMES) as GreeneryId[]).map((id) => ({ id, name: GREENERY_NAMES[id] })), bouquet.wrap.greenery, (id) => actions.setWrap({ greenery: id as GreeneryId })),
       ),
     ];
 
@@ -301,7 +301,7 @@ export class Panel {
     const { featured, others } = this.presets;
     const presetButton = (p: Preset, cls: string) =>
       button(`preset-${p.id}`, p.name, () => actions.loadPreset(p.id), { class: cls, title: `${p.occasion}. ${p.evidence}` });
-    const random = button('preset-random', RANDOM_OPENS_LIST ? (this.presetListOpen ? 'Random ▴' : 'Random ▾') : 'Random', () => {
+    const random = button('preset-random', RANDOM_OPENS_LIST ? (this.presetListOpen ? 'Explore more ▴' : 'Explore more ▾') : 'Explore more', () => {
       if (!RANDOM_OPENS_LIST) {
         actions.loadPreset(others[Math.floor(Math.random() * others.length)].id);
         return;

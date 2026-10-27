@@ -29,7 +29,7 @@ the 3D models.
 - `npm run shot -- shots/<name>.png tools/steps/<step>.mjs`: headless Chrome check (playwright-core) against the dev
   server; prints `ok` or the console/page errors. Steps use `window.__debug`, which exists only in dev builds.
 - `python tools/test_safety.py` (run from `tools/`): checks the tools refuse hostile zips, GLBs and links.
-- `python tools/prepare_parts.py`: prepares the bows, stem and greenery from `flowers_sources/sketchfab/parts/` into
+- `python tools/prepare_parts.py [part ...]`: prepares the bows, stem and rose leaf from `flowers_sources/sketchfab/parts/` into
   `public/models/parts/`. Their credits are listed by hand in `public/credits.html`; keep them in step with `PARTS`.
 - `python tools/prepare_paper.py`: the paper textures (`public/textures/paper/`) cut from the models in
   `flowers_sources/sketchfab/paper/`. Their credits are listed by hand in `public/credits.html`; keep them in step with `PAPERS`.
@@ -43,17 +43,19 @@ the 3D models.
 - `src/arrange.ts`: placement maths (stem angle, distance, height, tilt to 3D pose; auto-arrange; gaps).
 - `src/catalog.ts`: the six recolourable flowers, colour families, paper and ribbon colours.
   `src/catalog.generated.ts` is written by `tools/prepare_models.py`; do not edit it by hand.
-- `src/presets.ts`: the 30 preset bouquets (3 featured buttons + the rest behind "Random"). Each lists its sources and
+- `src/presets.ts`: the 30 preset bouquets (3 featured buttons + the rest behind "Explore more"). Each lists its sources and
   evidence. Groups place flowers by view angle (0 = front, 90 = right), distance 0-1, height and tilt.
-  `RANDOM_OPENS_LIST` in `src/panel.ts` makes "Random" open a list for testing; set it to false for a real random pick.
-- `src/scene.ts`, `src/wrap.ts`: Babylon scene, model loading, picking and dragging, paper, ribbon, bow and greenery.
-- `src/greenery.ts`: where greenery sprigs go (a ring around the rim) and which models each kind of greenery uses.
+  `RANDOM_OPENS_LIST` in `src/panel.ts` makes "Explore more" open a list for testing; set it to false for a real random pick.
+- `src/scene.ts`, `src/wrap.ts`: Babylon scene, model loading, picking and dragging, paper, ribbon and bow.
+- `src/greenery.ts`: which flower stems keep a leaf ("Leaves on the stems": none, few, more) and where it grows: a pure function of the stem ids and poses, so the same bouquet always gets the same leaves. The leaf is drawn by `FlowerFactory` in `src/flowers.ts` as part of the stem, so it is rebuilt and disposed with its flower. The numbers come from `flowers_sources/leaf_references/NOTES.md`.
 - `src/panel.ts`, `src/main.ts`: the side panel (data-key attributes are used by `tools/steps`) and the wiring.
 - `tests/`: unit tests, including a check that preset flower heads do not sit inside each other.
 - `flowers_sources/`: original downloads (not loaded by the app, about 1.2 GB, untracked).
   - `sketchfab/<colour>/` + `manifest.json`: downloaded models.
   - `preset_references/<preset-id>/`: reference photos for each preset with a `sources.txt`. The photos belong to
     their florists and photographers: reference only, git-ignored, never commit or publish them.
+  - `leaf_references/<flower>/`: photos of how leaves sit on cut stems, with a `sources.txt` each, and `NOTES.md` (what they
+    show and the compare-and-fix log). Same rules: reference only, git-ignored.
 - `public/models/`: the prepared head-only models the app loads. `public/credits.html`: model credits
   (generated part between the `generated models` markers).
 

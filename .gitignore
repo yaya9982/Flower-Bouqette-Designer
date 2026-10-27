@@ -11,3 +11,5 @@ shots/
 server/data/
 # Write-ups and PDFs are kept out of the repo.
 *.pdf
+.dev.vars
+.wrangler/

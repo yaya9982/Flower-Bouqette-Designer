@@ -9,10 +9,11 @@ export interface Env { GEMINI_API_KEY: string }
 
 /** Free models, tried in order; the next one is used when one is out of quota for the day. */
 export const MODELS = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
-const ORIGINS = ['https://yaya9982.github.io', 'http://localhost:5173', 'http://localhost:5180'];
+const ORIGINS = ['https://yaya9982.github.io', 'https://flower-bouqette-designer.onrender.com', 'http://localhost:5173', 'http://localhost:5180'];
 const MAX_BODY = 200_000;
 const MAX_CONTENTS = 200;
 const CALLS_PER_IP_PER_DAY = 150;
+const GEMINI_TIMEOUT_MS = 25_000;
 
 /** Gemini's schema types are upper case and it has no `additionalProperties`. */
 function geminiSchema(schema: any): object {
@@ -44,15 +45,26 @@ function overCap(ip: string, now: number): boolean {
 /** Only what the chat drawer sends, so the Worker can't be used for images or long prompts of someone else's. */
 const PART_KEYS = new Set(['text', 'thought', 'thoughtSignature', 'functionCall', 'functionResponse']);
 const MAX_USER_TEXT = 2000;
+/** The florist's own replies are longer than a customer's message, but not essays. */
+const MAX_MODEL_TEXT = 4000;
+const MAX_TOOL_JSON = 30_000;
+const TOOL_NAMES = new Set(TOOLS.map((t) => t.name));
+
+const isToolPart = (call: any): boolean => call && typeof call === 'object' && TOOL_NAMES.has(call.name)
+  && JSON.stringify(call).length <= MAX_TOOL_JSON;
 
 function validPart(part: any, role: string): boolean {
-  return part && typeof part === 'object' && Object.keys(part).every((k) => PART_KEYS.has(k))
-    && (role !== 'user' || part.text === undefined || (typeof part.text === 'string' && part.text.length <= MAX_USER_TEXT));
+  if (!part || typeof part !== 'object' || !Object.keys(part).every((k) => PART_KEYS.has(k))) return false;
+  if (part.text !== undefined && (typeof part.text !== 'string' || part.text.length > (role === 'user' ? MAX_USER_TEXT : MAX_MODEL_TEXT))) return false;
+  // Calls and results must name one of the florist's tools, so a forged history cannot invent others.
+  if (part.functionCall !== undefined && !isToolPart(part.functionCall)) return false;
+  if (part.functionResponse !== undefined && !isToolPart(part.functionResponse)) return false;
+  return true;
 }
 
 function validContents(contents: unknown): contents is { role: string; parts: unknown[] }[] {
   return Array.isArray(contents) && contents.length > 0 && contents.length <= MAX_CONTENTS
-    && contents.every((c) => c && (c.role === 'user' || c.role === 'model') && Array.isArray(c.parts)
+    && contents.every((c) => c && (c.role === 'user' || c.role === 'model') && Array.isArray(c.parts) && c.parts.length > 0
       && c.parts.every((p: unknown) => validPart(p, c.role)));
 }
 
@@ -65,6 +77,8 @@ export async function handle(request: Request, env: Env, fetchFn: typeof fetch =
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...cors, 'access-control-allow-methods': 'POST' } });
   if (request.method !== 'POST') return reply(405, { error: 'POST only.' });
 
+  // The declared size is checked first, so an oversized body is never read.
+  if (Number(request.headers.get('content-length') ?? 0) > MAX_BODY) return reply(413, { error: 'This chat is too long. Start a new one.' });
   const text = await request.text();
   if (text.length > MAX_BODY) return reply(413, { error: 'This chat is too long. Start a new one.' });
   let contents: unknown;
@@ -81,9 +95,17 @@ export async function handle(request: Request, env: Env, fetchFn: typeof fetch =
     generationConfig: { maxOutputTokens: 4096 },
   });
   for (const model of MODELS) {
-    const res = await fetchFn(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-      method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY.trim() }, body,
-    });
+    let res: Response;
+    try {
+      res = await fetchFn(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+        method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY.trim() }, body,
+        signal: AbortSignal.timeout(GEMINI_TIMEOUT_MS),
+      });
+    } catch (error) {
+      // Unreachable or too slow: answer with the site's CORS headers so the chat can say so instead of failing opaquely.
+      console.log(`Gemini ${model} did not answer: ${(error as Error).name}`);
+      return reply(502, { error: 'The florist is unavailable right now.' });
+    }
     if (res.status === 429 || res.status === 503) continue;
     const json: any = await res.json().catch(() => ({}));
     if (!res.ok) {

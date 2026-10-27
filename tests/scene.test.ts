@@ -1,8 +1,8 @@
-import { NullEngine, PBRMaterial, RawTexture, Scene, DirectionalLight, ShadowGenerator, Texture, Vector3 } from '@babylonjs/core';
+import { AssetContainer, MeshBuilder, NullEngine, PBRMaterial, RawTexture, Scene, DirectionalLight, ShadowGenerator, Texture, Vector3 } from '@babylonjs/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BouquetEditor, type Bouquet } from '../src/bouquet';
 import { Catalog, FLOWERS } from '../src/catalog';
-import { FlowerFactory, FlowerViews, ModelLibrary } from '../src/flowers';
+import { FlowerFactory, FlowerViews, ModelLibrary, partModel } from '../src/flowers';
 import { CameraRig, DragSurface } from '../src/scene';
 import type { PaperTextureSource } from '../src/paper-textures';
 import { SHAPE_OF } from '../src/shapes';
@@ -83,6 +83,66 @@ describe('FlowerViews', () => {
     factory.dispose();
     expect(flowerMeshes()).toEqual([]);
     expect(colourMaterials()).toEqual([]);
+  });
+});
+
+describe('leaves on the stems', () => {
+  // A box stands in for the leaf model.
+  function withLeaves() {
+    const container = new AssetContainer(scene);
+    container.meshes.push(MeshBuilder.CreateBox('leaf', { size: 1 }, scene));
+    container.removeAllFromScene();
+    const factory = new FlowerFactory(scene, shadows);
+    const models = { request: () => {}, get: (id: string) => (id === partModel('rose-leaf.glb').id ? container : null) } as unknown as ModelLibrary;
+    return new FlowerViews(factory, models, catalog, null, partModel('rose-leaf.glb'));
+  }
+  let b = editor.createDefault();
+  while (b.stems.length < 40) b = editor.add(b, 'rose');
+  b = editor.rearrange(b);
+  const radius = editor.arranger.surfaceRadius(b.stems);
+  const withGreenery = (greenery: 'none' | 'few' | 'more') => editor.setWrap(b, { greenery });
+  const leafMeshes = (stemId = '') => scene.meshes.filter((m) => m.name.includes(`${stemId}-leaf`));
+
+  it('grow on some stems when greenery is on, and on none when it is off', () => {
+    const views = withLeaves();
+    views.sync(withGreenery('none'), radius);
+    expect(leafMeshes()).toEqual([]);
+    views.sync(withGreenery('more'), radius);
+    expect(leafMeshes().length).toBeGreaterThan(0);
+    expect(leafMeshes().length).toBeLessThanOrEqual(12);
+  });
+
+  it('turning greenery on or off rebuilds only the stems whose leaves change, never the flower heads', () => {
+    const views = withLeaves();
+    views.sync(withGreenery('none'), radius);
+    const roots = b.stems.map((s) => views.root(s.id));
+    views.sync(withGreenery('more'), radius);
+    b.stems.forEach((s, i) => expect(views.root(s.id)).toBe(roots[i]));
+    views.sync(withGreenery('none'), radius);
+    expect(leafMeshes()).toEqual([]);
+  });
+
+  it('syncing the same bouquet twice rebuilds nothing', () => {
+    const views = withLeaves();
+    views.sync(withGreenery('more'), radius);
+    const meshes = scene.meshes.slice();
+    views.sync(withGreenery('more'), radius);
+    expect(scene.meshes).toEqual(meshes);
+  });
+
+  it('go with their flower when it is removed', () => {
+    const views = withLeaves();
+    views.sync(withGreenery('more'), radius);
+    const withLeaf = b.stems.find((s) => leafMeshes(s.id).length > 0)!;
+    expect(withLeaf).toBeDefined();
+    views.sync(editor.remove(withGreenery('more'), withLeaf.id), radius);
+    expect(leafMeshes(withLeaf.id)).toEqual([]);
+  });
+
+  it('are not picked, so dragging a flower never grabs a leaf', () => {
+    const views = withLeaves();
+    views.sync(withGreenery('more'), radius);
+    expect(leafMeshes().every((m) => !m.isPickable)).toBe(true);
   });
 });
 

@@ -145,4 +145,12 @@ describe('FloristSessions after a failure', () => {
     expect(third.done).toBe(true);
     expect(third.text).toMatch(/busy/);
   });
+
+  it('a refused first request does not leave an empty chat behind', async () => {
+    const { sessions } = scripted();
+    for (const bad of [{}, { text: '' }, { text: 'x'.repeat(1001) }, { toolResults: [] }]) {
+      expect('error' in (await sessions.turn(bad as never))).toBe(true);
+    }
+    expect((sessions as any).sessions.size).toBe(0);
+  });
 });

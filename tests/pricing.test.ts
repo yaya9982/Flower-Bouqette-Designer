@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BouquetEditor, type Bouquet } from '../src/bouquet';
 import { Catalog, FLOWERS } from '../src/catalog';
-import { formatCents, priceBouquet } from '../src/pricing';
+import { formatCents, priceBouquet, stemCents } from '../src/pricing';
 
 const catalog = new Catalog(FLOWERS);
 const editor = new BouquetEditor(catalog);
@@ -53,5 +53,9 @@ describe('formatCents', () => {
   it('writes two decimals', () => {
     expect(formatCents(4200)).toBe('42.00');
     expect(formatCents(5)).toBe('0.05');
+  });
+
+  it('a name that is only an object property (constructor, toString) costs the default, not NaN', () => {
+    for (const name of ['constructor', 'toString', '__proto__']) expect(stemCents(name)).toBe(400);
   });
 });

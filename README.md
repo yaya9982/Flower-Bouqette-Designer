@@ -8,7 +8,7 @@ Built for the [PayPal AI Hackathon](https://paypalaihackathon.devpost.com/) (202
 
 ## What it does
 
-- **3D bouquet designer:** pick from 206 flowers with a colour wheel (hover a flower to see a picture of it), choose a shape (round, cascading, loose, one-sided), paper (kraft, matte, tissue, with real paper textures), ribbon colour, bow and greenery, and drag single flowers into place. Start from 30 researched ready-made bouquets. Undo and redo work, and the design is saved in the browser. Every layout is kept compact like a real bouquet: tests hold all presets and random AI sessions to it.
+- **3D bouquet designer:** pick from 206 flowers with a colour wheel (hover a flower to see a picture of it), choose a shape (round, cascading, loose, one-sided), paper (kraft, matte, tissue, with real paper textures), ribbon colour, bow and a few leaves left on the stems, and drag single flowers into place. Start from 30 researched ready-made bouquets. Undo and redo work, and the design is saved in the browser. Every layout is kept compact like a real bouquet: tests hold all presets and random AI sessions to it.
 - **Live price:** worked out per stem plus wrapping and arranging, and updated as you design.
 - **AI florist:** a chat over the 3D view, run by an AI with tool calls. Say "a $60 birthday bouquet in pinks" and it searches flowers, loads presets, and adds, swaps and recolours stems while you watch. Every change is one undo step. When you're happy, it shows you the pay buttons. **The customer always pays; the AI never does.**
 - **PayPal checkout:** PayPal, Pay Later and Venmo buttons (PayPal JS SDK v6), plus Pay Later messaging. Before paying, the customer picks a delivery date and writes a card message.
@@ -76,4 +76,4 @@ TypeScript (strict), Vite, Babylon.js, Node (`node:http`, run with `tsx`), PayPa
 
 ## Credits and license
 
-Code: [MIT](LICENSE). The 3D flower, bow, stem, greenery and paper-texture models are by their Sketchfab authors under CC BY 4.0 (one under CC0). See [credits](public/credits.html).
+Code: [MIT](LICENSE). The 3D flower, bow, stem, leaf and paper-texture models are by their Sketchfab authors under CC BY 4.0 (one under CC0). See [credits](public/credits.html).

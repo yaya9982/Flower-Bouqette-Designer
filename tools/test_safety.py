@@ -29,6 +29,10 @@ assert od.glbs_in_zip(zip_of({'1.zip': zip_of({'2.zip': zip_of({'a.glb': b'x'})}
 od.MAX_UNZIPPED = 1000
 assert raises(od.glbs_in_zip, zip_of({'bomb.glb': b'\0' * 100_000}))
 assert raises(od.glbs_in_zip, zip_of({'a.glb': b'x'}, zipfile.ZIP_LZMA))
+# The streaming guard on its own (the header-size check above would catch the bomb first, so this is the one
+# that matters when a header lies): read_member stops at the budget however big the member really is.
+with zipfile.ZipFile(io.BytesIO(zip_of({'bomb.glb': b'\0' * 100_000}))) as z:
+    assert raises(lambda: od.read_member(z, z.infolist()[0], [1000]))
 
 # GLBs: wrong magic, wrong length and an oversized JSON chunk are all refused.
 with tempfile.TemporaryDirectory() as d:

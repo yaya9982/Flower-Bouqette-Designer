@@ -111,9 +111,23 @@ describe('Designer', () => {
     expect(history.present).not.toBe(added);
     expect(key(keys, 'y', { ctrlKey: true })).toBe(true);
     expect(history.present).toBe(added);
-    key(keys, 'z', { metaKey: true });
+    expect(key(keys, 'z', { metaKey: true })).toBe(true);
+    expect(history.present).not.toBe(added);
     expect(key(keys, 'Z', { ctrlKey: true, shiftKey: true })).toBe(true);
     expect(history.present).toBe(added);
+  });
+
+  it('Ctrl+Z inside a text box is left to the box and does not undo the bouquet', () => {
+    const { designer, history, keys } = setup();
+    designer.add('lily');
+    const added = history.present;
+    for (const tagName of ['TEXTAREA', 'INPUT']) {
+      Object.assign(keys, { tagName });
+      expect(key(keys, 'z', { ctrlKey: true })).toBe(false);
+      expect(history.present).toBe(added);
+    }
+    Object.assign(keys, { tagName: 'INPUT', type: 'range' });
+    expect(key(keys, 'z', { ctrlKey: true })).toBe(true);
   });
 
   it('dispose stops listening for keys and disposes the view and panel', () => {

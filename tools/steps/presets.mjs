@@ -1,4 +1,4 @@
-// The three preset buttons and the Random list each load their bouquet, and Undo brings back the one before.
+// The three preset buttons and the Explore more list each load their bouquet, and Undo brings back the one before.
 const state = (page) => page.evaluate(() => window.__debug.bouquet());
 const expect = (ok, message) => { if (!ok) throw new Error(message); };
 
@@ -17,7 +17,7 @@ export default async (page) => {
 
   await page.click('[data-key="preset-random"]');
   const others = await page.locator('.preset-list [data-key^="preset-"]').evaluateAll((n) => n.map((b) => b.dataset.key));
-  expect(others.length === 27, `Random lists the other 27 (found ${others.length})`);
+  expect(others.length === 27, `Explore more lists the other 27 (found ${others.length})`);
   for (const key of others) {
     await page.click(`[data-key="${key}"]`);
     const b = await state(page);

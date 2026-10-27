@@ -1,9 +1,8 @@
-import { AssetContainer, Axis, Color3, Mesh, MeshBuilder, PBRMaterial, Quaternion, Scene, ShadowGenerator, TransformNode, Vector3 } from '@babylonjs/core';
+import { AssetContainer, Axis, Color3, Mesh, MeshBuilder, PBRMaterial, Scene, ShadowGenerator, TransformNode, Vector3 } from '@babylonjs/core';
 import type { BowId, PaperId, Wrap } from './bouquet';
 import { BINDING, DEFAULT_HEIGHT, SHAPE_OF, TAU, type ShapeId } from './shapes';
 import { PAPER_COLOURS, RIBBON_COLOURS } from './catalog';
-import { partModel, v3, type ModelLibrary, type ModelRef } from './flowers';
-import { GREENERY_MODELS, sprigPoses } from './greenery';
+import { partModel, type ModelLibrary, type ModelRef } from './flowers';
 import type { PaperTextureSource } from './paper-textures';
 
 /** `repeat`: how many times the paper's maps tile around and up the paper. `fold`: how strongly its folds show. */
@@ -16,8 +15,6 @@ const PAPER_LOOK: Record<Exclude<PaperId, 'none'>, { roughness: number; alpha: n
 const PAPER_ARC = 0.78;
 /** Turns the paper so its opening faces the default camera. Set in Task 6 Step 4. */
 const PAPER_OPENING_TURN = 0.88;
-/** The same green as the flower stems (src/flowers.ts). */
-const SPRIG_STEM_COLOUR = '#4f7a3a';
 /** Bow models (1 unit wide, facing -Z) and how wide each is drawn, in metres. */
 const BOW_MODELS: Record<BowId, { ref: ModelRef; width: number }> = {
   ribbon: { ref: partModel('bow-ribbon.glb'), width: 0.1 },
@@ -39,34 +36,26 @@ function flatMaterial(scene: Scene, name: string, hex: string, roughness: number
 }
 
 /**
- * The paper, ribbon, bow and greenery, rebuilt only when the wrap, shape, size or a model's arrival changes.
- * Without `models` (as in the tests) the bow is built from basic shapes and there is no greenery.
+ * The paper, ribbon and bow, rebuilt only when the wrap, shape, size or a model's arrival changes.
+ * Without `models` (as in the tests) the bow is built from basic shapes.
  */
 export class WrapView {
   private node: TransformNode | null = null;
-  /** Kept apart from the wrap: its copies share the loaded models' materials, which must outlive it. */
-  private greenery: TransformNode | null = null;
   private builtFor = '';
 
   constructor(private readonly scene: Scene, private readonly shadows: ShadowGenerator, private readonly models: ModelLibrary | null = null,
     private readonly textures: PaperTextureSource | null = null) {}
 
-  update(wrap: Wrap, shape: ShapeId, radius: number, stemCount = 0): void {
+  update(wrap: Wrap, shape: ShapeId, radius: number): void {
     const bowRef = BOW_MODELS[wrap.bow].ref;
-    const sprigModels = GREENERY_MODELS[wrap.greenery];
-    const sprigRefs = sprigModels.map((m) => partModel(m.file));
-    for (const ref of this.models ? [bowRef, ...sprigRefs] : []) this.models!.request(ref);
+    if (this.models) this.models.request(bowRef);
     const bow = this.models?.get(bowRef.id) ?? null;
-    const sprigs = sprigModels.flatMap((m, i) => {
-      const container = this.models?.get(sprigRefs[i].id);
-      return container ? [{ container, length: m.length }] : [];
-    });
-    const key = `${JSON.stringify(wrap)}|${shape}|${radius.toFixed(4)}|${stemCount}|${bow ? 1 : 0}|${sprigs.length}`;
+    // The leaves are not part of the wrap: they grow on the stems (src/flowers.ts), so the greenery setting is left out.
+    const key = `${JSON.stringify([wrap.paper, wrap.paperColour, wrap.ribbonColour, wrap.bow])}|${shape}|${radius.toFixed(4)}|${bow ? 1 : 0}`;
     if (key === this.builtFor) return;
     this.dispose();
     this.node = buildWrap(this.scene, wrap, shape, radius, bow, this.textures);
-    this.greenery = buildGreenery(this.scene, sprigs, shape, radius, stemCount);
-    for (const mesh of [...this.node.getChildMeshes(), ...this.greenery.getChildMeshes()]) {
+    for (const mesh of this.node.getChildMeshes()) {
       mesh.metadata = { wrap: true };
       mesh.isPickable = false;
       this.shadows.addShadowCaster(mesh);
@@ -76,43 +65,9 @@ export class WrapView {
 
   dispose(): void {
     this.node?.dispose(false, true);
-    // The sprigs' stems have their own material; the sprigs themselves share the loaded models' materials.
-    for (const mesh of this.greenery?.getChildMeshes() ?? []) if (mesh.name === 'sprigStem') mesh.material?.dispose();
-    this.greenery?.dispose(false, false);
     this.node = null;
-    this.greenery = null;
     this.builtFor = '';
   }
-}
-
-/** Sprigs tucked in around the rim, taking turns among the loaded models of the chosen greenery. */
-function buildGreenery(scene: Scene, sprigs: { container: AssetContainer; length: number }[], shape: ShapeId, radius: number, stemCount: number): TransformNode {
-  const root = new TransformNode('greenery', scene);
-  if (sprigs.length === 0) return root;
-  const stemMaterial = flatMaterial(scene, 'sprigStemMaterial', SPRIG_STEM_COLOUR, 0.8);
-  sprigPoses(SHAPE_OF[shape], radius, stemCount).forEach((pose, i) => {
-    const sprig = sprigs[i % sprigs.length];
-    // The sprig ends at the pose's tip; a long one starts no lower than the tie.
-    const length = Math.min(sprig.length, pose.length);
-    const fit = new TransformNode(`sprig-${i}`, scene);
-    fit.parent = root;
-    fit.position = v3(pose.base).add(v3(pose.dir).scale(pose.length - length));
-    // Its own stem from the tie, so a short frond is tucked into the bunch rather than floating at the rim.
-    if (pose.length - length > 0.005) {
-      const stem = MeshBuilder.CreateTube('sprigStem', { path: [v3(pose.base), fit.position.clone()], radius: 0.0025, tessellation: 5 }, scene);
-      stem.material = stemMaterial;
-      stem.parent = root;
-    }
-    // Up the sprig is `dir`; its leaves (which spread along its local Z) fan out sideways along the rim, never down.
-    const up = v3(pose.dir);
-    const along = Vector3.Cross(up, Vector3.Up());
-    const side = along.lengthSquared() > 1e-9 ? along.normalize() : new Vector3(1, 0, 0);
-    fit.rotationQuaternion = Quaternion.RotationQuaternionFromAxis(Vector3.Cross(up, side), up, side);
-    fit.scaling = new Vector3(pose.mirrored ? -length : length, length, length);
-    const copy = sprig.container.instantiateModelsToScene((name) => `sprig-${i}-${name}`, false, { doNotInstantiate: true });
-    for (const node of copy.rootNodes) node.parent = fit;
-  });
-  return root;
 }
 
 function buildWrap(scene: Scene, wrap: Wrap, shape: ShapeId, radius: number, bowModel: AssetContainer | null, textures: PaperTextureSource | null): TransformNode {

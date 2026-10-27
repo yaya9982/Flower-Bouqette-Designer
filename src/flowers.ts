@@ -5,11 +5,14 @@ import {
 } from '@babylonjs/core';
 import type { Bouquet } from './bouquet';
 import type { Catalog, FlowerType } from './catalog';
-import { BINDING, SHAPE_OF, TAU, type BouquetShape, type Pose, type Vec3 } from './shapes';
+import { leafPlans, type LeafItem, type LeafPlan } from './greenery';
+import { BINDING, SEPALS_BELOW_HEAD, SHAPE_OF, TAU, type BouquetShape, type Pose, type Vec3 } from './shapes';
 
 const STEM_COLOUR = '#4f7a3a';
 const CENTRE_COLOUR = '#5a4326';
 const PETALS = 8;
+/** Multiplies the leaf texture's colour (1 = as painted); the painted green is lighter than a florist's rose leaf. */
+const LEAF_TINT = [0.4, 0.65, 0.3];
 
 export const v3 = (p: Vec3) => new Vector3(p.x, p.y, p.z);
 
@@ -19,8 +22,6 @@ export const partModel = (file: string): ModelRef => ({ id: `part:${file}`, mode
 
 /** Thickness of a stem model, in metres per unit of its width: about 6 mm stems under 2 cm sepals. */
 const STEM_MODEL_WIDTH = 0.2;
-/** How far below the head's centre the stem model ends, as a share of the head's diameter, so its sepals sit under the head. */
-const SEPALS_BELOW_HEAD = 0.3;
 
 /** Loaded model per flower id, fetched once each. */
 export class ModelLibrary {
@@ -136,7 +137,7 @@ export class FlowerFactory {
    * The stem: a tube for the handle below the tie, and above it the stem model when it has loaded (else the tube goes
    * on to the head). The model shares its loaded material, so disposing the stem never frees anything shared.
    */
-  stem(shape: BouquetShape, pose: Pose, stemId: string, headDiameter: number, model: AssetContainer | null): TransformNode {
+  stem(shape: BouquetShape, pose: Pose, stemId: string, headDiameter: number, model: AssetContainer | null, leaves: LeafSet | null = null): TransformNode {
     const root = new TransformNode(`stem-${stemId}`, this.scene);
     const path = model ? [v3(shape.stemFoot(pose)), v3(BINDING)] : [v3(shape.stemFoot(pose)), v3(BINDING), v3(pose.head)];
     const tube = MeshBuilder.CreateTube(`stem-${stemId}`, { path, radius: 0.004, tessellation: 6 }, this.scene);
@@ -152,11 +153,41 @@ export class FlowerFactory {
       const copy = model.instantiateModelsToScene((name) => `stem-${stemId}-${name}`, false, { doNotInstantiate: true });
       for (const node of copy.rootNodes) node.parent = fit;
     }
+    leaves?.plans.forEach((plan, i) => this.leaf(root, plan, `${stemId}-leaf${i}`, leaves.model));
     for (const mesh of root.getChildMeshes()) {
       mesh.isPickable = false;
       this.shadows.addShadowCaster(mesh);
     }
     return root;
+  }
+
+  /** The leaf model's materials, darkened once: a flat blade facing the light looks washed out otherwise. */
+  private readonly tuned = new WeakSet<AssetContainer>();
+  private tune(model: AssetContainer): void {
+    if (this.tuned.has(model)) return;
+    this.tuned.add(model);
+    for (const m of model.materials) {
+      if (!(m instanceof PBRMaterial)) continue;
+      m.albedoColor = Color3.FromArray(LEAF_TINT);
+      m.directIntensity = 0.7;
+      m.environmentIntensity = 0.6;
+    }
+  }
+
+  /** A leaf on its stalk, growing out of the stem at `plan.base`. Shares the loaded model's material. */
+  private leaf(parent: TransformNode, plan: LeafPlan, name: string, model: AssetContainer): void {
+    this.tune(model);
+    const fit = new TransformNode(name, this.scene);
+    fit.parent = parent;
+    fit.position = v3(plan.base);
+    // Up the leaf is the stalk's direction; its blade spreads sideways (never up and down), facing up like a leaf that droops.
+    const up = v3(plan.dir);
+    const across = Vector3.Cross(up, Vector3.Up());
+    const side = across.lengthSquared() > 1e-9 ? across.normalize() : new Vector3(1, 0, 0);
+    fit.rotationQuaternion = Quaternion.RotationQuaternionFromAxis(side, up, Vector3.Cross(side, up));
+    fit.scaling = new Vector3(plan.mirrored ? -plan.length : plan.length, plan.length, plan.length);
+    const copy = model.instantiateModelsToScene((n) => `${name}-${n}`, false, { doNotInstantiate: true });
+    for (const node of copy.rootNodes) node.parent = fit;
   }
 
   dispose(): void {
@@ -165,7 +196,10 @@ export class FlowerFactory {
   }
 }
 
-/** One flower in the scene: its head and its stem. */
+/** The leaves one stem keeps, and the model they are drawn with. */
+export interface LeafSet { plans: LeafPlan[]; model: AssetContainer }
+
+/** One flower in the scene: its head and its stem (with its leaves). */
 export class FlowerView {
   readonly root: TransformNode;
   /** True for a loaded model, whose materials are its own copies and are disposed with it. */
@@ -181,14 +215,15 @@ export class FlowerView {
     this.root = container ? factory.model(type, hex, stemId, container) : factory.placeholder(type, hex, stemId);
   }
 
-  place(shape: BouquetShape, pose: Pose, stemId: string, headDiameter: number, stemModel: AssetContainer | null): void {
+  place(shape: BouquetShape, pose: Pose, stemId: string, headDiameter: number, stemModel: AssetContainer | null, leaves: LeafSet | null = null): void {
+    const leafKey = leaves ? leaves.plans.map((p) => [p.base.x, p.base.y, p.base.z, p.dir.x, p.dir.y, p.dir.z, p.length, p.mirrored ? 1 : 0].map((n) => n.toFixed(5)).join(',')).join(';') : '';
     const placed = [pose.head.x, pose.head.y, pose.head.z, pose.face.x, pose.face.y, pose.face.z].map((n) => n.toFixed(5)).join(',')
-      + (stemModel ? '|model' : '|tube');
+      + (stemModel ? '|model' : '|tube') + '|' + leafKey;
     if (this.placed === placed) return;
     this.root.position = v3(pose.head);
     this.root.rotationQuaternion = Quaternion.FromUnitVectorsToRef(Vector3.Up(), v3(pose.face), new Quaternion());
     this.stem?.dispose();
-    this.stem = this.factory.stem(shape, pose, stemId, headDiameter, stemModel);
+    this.stem = this.factory.stem(shape, pose, stemId, headDiameter, stemModel, leaves);
     this.placed = placed;
   }
 
@@ -202,9 +237,9 @@ export class FlowerView {
 export class FlowerViews {
   private readonly views = new Map<string, FlowerView>();
 
-  /** `stemPart` is the stem model to use; without one (as in the tests) stems are plain tubes. */
+  /** `stemPart` is the stem model to use and `leafPart` the leaf; without them (as in the tests) stems are plain tubes with no leaves. */
   constructor(private readonly factory: FlowerFactory, private readonly models: ModelLibrary, private readonly catalog: Catalog,
-    private readonly stemPart: ModelRef | null = null) {}
+    private readonly stemPart: ModelRef | null = null, private readonly leafPart: ModelRef | null = null) {}
 
   /** Builds, moves and removes flowers to match the bouquet. Returns the lowest point of any head. */
   sync(bouquet: Bouquet, radius: number): number {
@@ -212,6 +247,20 @@ export class FlowerViews {
     let lowest = 0;
     if (this.stemPart) this.models.request(this.stemPart);
     const stemModel = this.stemPart && this.models.get(this.stemPart.id);
+    const shape = SHAPE_OF[bouquet.shape];
+
+    // Which stems keep a leaf depends on all of them (a leaf must clear the other heads), so decide it first.
+    const level = bouquet.wrap.greenery;
+    if (this.leafPart && level !== 'none') this.models.request(this.leafPart);
+    const leafModel = this.leafPart && level !== 'none' ? this.models.get(this.leafPart.id) : null;
+    const items: LeafItem[] = [];
+    for (const stem of bouquet.stems) {
+      const type = this.catalog.find(stem.flower);
+      if (type) items.push({ id: stem.id, name: type.name, pose: shape.stemPose(stem, radius), headDiameter: type.headDiameter });
+    }
+    const leaves = new Map<string, LeafPlan[]>();
+    if (leafModel) for (const plan of leafPlans(level, shape, radius, items)) leaves.set(plan.stemId, [...(leaves.get(plan.stemId) ?? []), plan]);
+    const poses = new Map(items.map((item) => [item.id, item.pose]));
 
     for (const stem of bouquet.stems) {
       const type = this.catalog.find(stem.flower);
@@ -232,10 +281,10 @@ export class FlowerViews {
         this.views.set(stem.id, view);
       }
 
-      const shape = SHAPE_OF[bouquet.shape];
-      const pose = shape.stemPose(stem, radius);
+      const pose = poses.get(stem.id)!;
       lowest = Math.min(lowest, pose.head.y - type.headDiameter / 2);
-      view.place(shape, pose, stem.id, type.headDiameter, stemModel);
+      const own = leaves.get(stem.id);
+      view.place(shape, pose, stem.id, type.headDiameter, stemModel, leafModel && own ? { plans: own, model: leafModel } : null);
     }
 
     for (const [id, view] of this.views) {

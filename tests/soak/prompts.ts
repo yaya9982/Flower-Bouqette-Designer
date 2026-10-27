@@ -46,7 +46,7 @@ const STYLES: [string, ShapeId][] = [
 ];
 const PAPERS: [string, PaperId][] = [['kraft paper', 'kraft'], ['tissue paper', 'tissue'], ['no wrapping paper', 'none'], ['matte paper', 'matte']];
 const EXTRAS: [string, { bow?: BowId; greenery?: GreeneryId }][] = [
-  ['a star bow', { bow: 'star' }], ['ferns', { greenery: 'fern' }], ['eucalyptus leaves', { greenery: 'eucalyptus' }], ['some leafy greenery', { greenery: 'leafy' }],
+  ['a star bow', { bow: 'star' }], ['a few leaves left on the stems', { greenery: 'few' }], ['plenty of leaves on the stems', { greenery: 'more' }],
 ];
 const VAGUE = [
   'Surprise me', 'Something pretty for my desk', 'I need flowers but I have no idea what', 'Make it look expensive', 'Whatever is in season',

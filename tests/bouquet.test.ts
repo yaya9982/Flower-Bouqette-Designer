@@ -178,7 +178,7 @@ describe('shape, wrap and rearrange', () => {
 
   it('sets the bow and greenery, and refuses unknown ones', () => {
     const b = base();
-    expect(editor.setWrap(b, { bow: 'star', greenery: 'fern' }).wrap).toEqual({ ...b.wrap, bow: 'star', greenery: 'fern' });
+    expect(editor.setWrap(b, { bow: 'star', greenery: 'more' }).wrap).toEqual({ ...b.wrap, bow: 'star', greenery: 'more' });
     expect(editor.setWrap(b, { bow: 'bowtie' as never })).toBe(b);
     expect(editor.setWrap(b, { greenery: 'moss' as never })).toBe(b);
     expect(editor.setWrap(b, { bow: b.wrap.bow, greenery: b.wrap.greenery })).toBe(b);
@@ -218,6 +218,14 @@ describe('validateBouquet', () => {
     delete data.wrap.bow;
     delete data.wrap.greenery;
     expect(editor.validate(data)!.wrap).toEqual({ ...base().wrap, bow: 'ribbon', greenery: 'none' });
+  });
+
+  it('turns the old kinds of greenery (sprigs) into leaves on the stems', () => {
+    for (const [old, now] of [['fern', 'few'], ['eucalyptus', 'few'], ['leafy', 'more'], ['few', 'few'], ['more', 'more'], ['none', 'none']]) {
+      const data = good();
+      data.wrap.greenery = old;
+      expect(editor.validate(data)!.wrap.greenery).toBe(now);
+    }
   });
 
   const bad: [string, (d: Record<string, any>) => unknown][] = [

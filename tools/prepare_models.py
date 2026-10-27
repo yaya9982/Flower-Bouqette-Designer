@@ -488,16 +488,18 @@ def build_auto(entry):
 
 def write_catalogue(rows):
     rows = sorted(rows, key=lambda r: (r['name'], r['title'], r['id']))
+    licences = {'CC BY 4.0': 'https://creativecommons.org/licenses/by/4.0/', 'CC0': 'https://creativecommons.org/publicdomain/zero/1.0/'}
+    # Checked before anything is written, so a bad row cannot leave a new catalogue next to old credits.
+    for r in rows:
+        assert SKETCHFAB_URL.fullmatch(r['url']), f'{r["id"]}: not a Sketchfab model link: {r["url"]!r}'
+        assert r['licence'] in licences, f'{r["id"]}: licence {r["licence"]!r} is not one the credits page can link'
     lines = ',\n'.join('  ' + json.dumps(r, ensure_ascii=False) for r in rows)
     (ROOT / 'src' / 'catalog.generated.ts').write_text(
         '// Written by tools/prepare_models.py from flowers_sources/sketchfab/manifest.json. Do not edit by hand.\n'
         "import type { GeneratedFlower } from './catalog';\n\n"
         f'export const GENERATED_FLOWERS: GeneratedFlower[] = [\n{lines},\n];\n', encoding='utf-8')
 
-    licences = {'CC BY 4.0': 'https://creativecommons.org/licenses/by/4.0/', 'CC0': 'https://creativecommons.org/publicdomain/zero/1.0/'}
-    # Titles, authors and links come from Sketchfab, so all are escaped and the link must be a Sketchfab model page.
-    for r in rows:
-        assert SKETCHFAB_URL.fullmatch(r['url']), f'{r["id"]}: not a Sketchfab model link: {r["url"]!r}'
+    # Titles, authors and links come from Sketchfab, so all are escaped.
     esc = lambda t: html_escape(t, quote=True)
     items = '\n'.join(
         f'      <li>{esc(r["name"])}: “{esc(r["title"])}” by {esc(r["author"])}, <a href="{licences[r["licence"]]}">{esc(r["licence"])}</a>, '
@@ -512,6 +514,7 @@ def write_catalogue(rows):
 def build_all_auto(only=()):
     manifest = json.loads((SRC / 'sketchfab' / 'manifest.json').read_text(encoding='utf-8'))
     rows = []
+    failed = 0
     for entry in manifest:
         if only and entry['uid'][:8] not in only:
             continue
@@ -520,8 +523,12 @@ def build_all_auto(only=()):
         except Exception as error:  # one odd file must not stop the other 140
             print(f'{entry["uid"][:8]}  FAILED ({type(error).__name__}: {error}): {entry["title"]}'.encode('ascii', 'replace').decode(), flush=True)
             row = None
+            failed += 1
         if row:
             rows.append(row)
+    if failed and not only:
+        # A model that failed would be dropped from the catalogue and its good file deleted below.
+        sys.exit(f'{failed} models failed, so the catalogue and the model files were left as they were. Fix them and run again.')
     if not only:
         write_catalogue(rows)
         # Files from an earlier run for models that are now left out.

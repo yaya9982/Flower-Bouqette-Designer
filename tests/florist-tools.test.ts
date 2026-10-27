@@ -43,6 +43,7 @@ describe('FloristTools', () => {
     const r = tools.run(b, 'add_flowers', { flowerId: 'rose', colourId: '', count: 5 });
     expect(r.isError).toBe(false);
     expect(r.result.added).toBe(2);
+    expect(r.result.capped).toBe(true);
     expect(r.next.stems).toHaveLength(MAX_STEMS);
     expect(tools.run(r.next, 'add_flowers', { flowerId: 'rose', colourId: '', count: 1 }).isError).toBe(true);
   });
@@ -68,6 +69,13 @@ describe('FloristTools', () => {
     const bad = tools.run(b, 'recolour_flowers', { flowerId: 'rose', toColourId: 'blue', count: 1 });
     expect(bad.isError).toBe(true);
     expect(bad.next).toBe(b);
+  });
+
+  it('swap_flowers refuses to swap a flower for itself, so it cannot report a change that did not happen', () => {
+    const b = editor.add(start(), 'rose');
+    const r = tools.run(b, 'swap_flowers', { fromFlowerId: 'rose', toFlowerId: 'rose', count: 2 });
+    expect(r.isError).toBe(true);
+    expect(r.next).toBe(b);
   });
 
   it('swap_flowers turns stems of one flower into another', () => {
@@ -101,7 +109,10 @@ describe('FloristTools', () => {
   it('set_wrap changes the bow and greenery; unknown ones are errors', () => {
     const b = start();
     const blank = { paper: '', paperColour: '', ribbonColour: '' };
-    expect(tools.run(b, 'set_wrap', { ...blank, bow: 'star', greenery: 'fern' }).next.wrap).toMatchObject({ bow: 'star', greenery: 'fern' });
+    expect(tools.run(b, 'set_wrap', { ...blank, bow: 'star', greenery: 'more' }).next.wrap).toMatchObject({ bow: 'star', greenery: 'more' });
+    // A florist still using the old words (fern, eucalyptus, leafy) gets leaves on the stems.
+    expect(tools.run(b, 'set_wrap', { ...blank, bow: '', greenery: 'leafy' }).next.wrap.greenery).toBe('more');
+    expect(tools.run(b, 'set_wrap', { ...blank, bow: '', greenery: 'fern' }).next.wrap.greenery).toBe('few');
     expect(tools.run(b, 'set_wrap', { ...blank, bow: 'bowtie', greenery: '' }).isError).toBe(true);
     expect(tools.run(b, 'set_wrap', { ...blank, bow: '', greenery: 'moss' }).isError).toBe(true);
   });

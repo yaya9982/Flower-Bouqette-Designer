@@ -496,7 +496,7 @@ export const PRESETS: Preset[] = [
   },
 ];
 
-/** The first three get their own buttons; the rest are behind "Random". */
+/** The first three get their own buttons; the rest are behind "Explore more". */
 export const FEATURED_PRESETS = 3;
 
 const rad = (degrees: number) => (degrees * Math.PI) / 180;
@@ -525,7 +525,7 @@ export class Presets {
     return this.all.slice(0, FEATURED_PRESETS);
   }
 
-  /** The ones behind "Random". */
+  /** The ones behind "Explore more". */
   get others(): readonly Preset[] {
     return this.all.slice(FEATURED_PRESETS);
   }

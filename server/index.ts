@@ -8,7 +8,7 @@ import { Catalog, FLOWERS } from '../src/catalog';
 import { FloristSessions, SYSTEM, TOOLS, type FloristRequest } from './florist';
 import { OrderStore } from './orders';
 import { PayPalApi } from './paypal';
-import { boardHandler, captureHandler, createOrderHandler, pathOf, RateLimiter, staticFile, type Reply } from './routes';
+import { boardHandler, captureHandler, clientIp, createOrderHandler, MIN_FLORIST_KEY, pathOf, RateLimiter, staticFile, type Reply } from './routes';
 
 if (existsSync('.env')) process.loadEnvFile('.env');
 
@@ -22,12 +22,19 @@ const PORT = Number(process.env.PORT ?? 8787);
 // The built site is served once `npm run build` has made it; in development Vite serves the pages instead.
 const SERVE_SITE = existsSync(join('dist', 'index.html'));
 const FLORIST_KEY = process.env.FLORIST_KEY ?? '';
+if (FLORIST_KEY.length < MIN_FLORIST_KEY) console.warn(`FLORIST_KEY is missing or shorter than ${MIN_FLORIST_KEY} characters, so the order board is closed.`);
+// Set TRUST_PROXY=1 behind Render or another reverse proxy, so each customer is counted by their own address.
+const TRUST_PROXY = process.env.TRUST_PROXY === '1';
+// All interfaces unless HOST says otherwise (HOST=127.0.0.1 keeps a dev server off the LAN; a host such as Render needs the default).
+const HOST = process.env.HOST;
 const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
   '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.glb': 'model/gltf-binary', '.hdr': 'application/octet-stream',
   '.wasm': 'application/wasm', '.ico': 'image/x-icon', '.txt': 'text/plain; charset=utf-8',
 };
 const MAX_BODY = 3 * 1024 * 1024;
+// A page cannot be framed by another site (the meta tag in the pages cannot say this), and files are never sniffed as another type.
+const SAFE_HEADERS = { 'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY', 'content-security-policy': "frame-ancestors 'none'" };
 
 const catalog = new Catalog(FLOWERS);
 const editor = new BouquetEditor(catalog);
@@ -42,7 +49,7 @@ const shop = { store, paypal, editor, catalog, now: () => new Date() };
 // Created on first use, so the shop still runs (without the florist) when ANTHROPIC_API_KEY is not set.
 let anthropic: Anthropic | null = null;
 const florist = new FloristSessions((messages) => {
-  anthropic ??= new Anthropic();
+  anthropic ??= new Anthropic({ timeout: 60_000, maxRetries: 1 });
   return anthropic.messages.create({
     model: process.env.FLORIST_MODEL ?? 'claude-haiku-5-5',
     max_tokens: 8000,
@@ -53,7 +60,7 @@ const florist = new FloristSessions((messages) => {
   });
 }, Date.now, Number(process.env.FLORIST_DAILY_CALLS ?? 2000));
 
-// Per-IP limits. ponytail: behind a proxy every customer shares the proxy's address; read X-Forwarded-For then.
+// Per-IP limits (see TRUST_PROXY).
 const apiLimit = new RateLimiter(60, 60_000);
 const orderLimit = new RateLimiter(10, 60_000);
 const newChatLimit = new RateLimiter(10, 60_000);
@@ -106,7 +113,7 @@ async function route(req: IncomingMessage, path: string, ip: string): Promise<Re
 }
 
 function send(res: ServerResponse, reply: Reply): void {
-  res.writeHead(reply.status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+  res.writeHead(reply.status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...SAFE_HEADERS });
   res.end(JSON.stringify(reply.body));
 }
 
@@ -121,7 +128,7 @@ function sendFile(req: IncomingMessage, res: ServerResponse, path: string): bool
     }
     const file = store.snapshotPath(snap[1]);
     if (!existsSync(file)) return false;
-    res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'private, max-age=3600' });
+    res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'private, max-age=3600', ...SAFE_HEADERS });
     res.end(readFileSync(file));
     return true;
   }
@@ -129,7 +136,7 @@ function sendFile(req: IncomingMessage, res: ServerResponse, path: string): bool
   const file = staticFile('dist', path.endsWith('/') ? `${path}index.html` : path);
   if (!file || !existsSync(file) || !statSync(file).isFile()) return false;
   const type = TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream';
-  res.writeHead(200, { 'content-type': type, ...(type.startsWith('text/html') ? { 'cross-origin-opener-policy': 'same-origin-allow-popups' } : {}) });
+  res.writeHead(200, { 'content-type': type, ...SAFE_HEADERS, ...(type.startsWith('text/html') ? { 'cross-origin-opener-policy': 'same-origin-allow-popups' } : {}) });
   res.end(readFileSync(file));
   return true;
 }
@@ -137,11 +144,11 @@ function sendFile(req: IncomingMessage, res: ServerResponse, path: string): bool
 // A bug in one request must not take the shop down for everyone.
 process.on('unhandledRejection', (error) => console.error(error));
 
-createServer(async (req, res) => {
+const server = createServer(async (req, res) => {
   try {
     const path = pathOf(req.url);
     if (path === null) return send(res, { status: 400, body: { error: 'Bad request.' } });
-    const ip = req.socket.remoteAddress ?? '?';
+    const ip = clientIp(req.socket.remoteAddress, req.headers['x-forwarded-for'], TRUST_PROXY);
     // Counted before any file is served, so florist-key guesses on pictures are limited too. The site's own
     // files (hundreds of flower models per page load) are not counted.
     if ((path.startsWith('/api/') || path.startsWith('/snapshots/')) && !apiLimit.allow(ip)) {
@@ -154,4 +161,9 @@ createServer(async (req, res) => {
     console.error(error);
     send(res, { status: 502, body: { error: 'Something went wrong talking to the payment service. Please try again.' } });
   }
-}).listen(PORT, () => console.log(`Shop server on http://localhost:${PORT}`));
+});
+// A body or headers that trickle in must not hold a connection for minutes.
+server.requestTimeout = 30_000;
+server.headersTimeout = 10_000;
+server.maxConnections = 500;
+server.listen(PORT, HOST, () => console.log(`Shop server on http://localhost:${PORT}`));
