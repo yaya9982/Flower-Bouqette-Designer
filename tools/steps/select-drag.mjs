@@ -54,7 +54,8 @@ export default async (page) => {
   // Swap keeps the position.
   const target = flower === 'sunflower' ? 'rose' : 'sunflower';
   const preSwap = stemOf(await debug(page, 'bouquet'), id);
-  await page.selectOption('[data-key="swap"]', target);
+  await page.locator('[data-key="swap"] button').click();
+  await page.locator(`[data-key="swap"] #swap-opt-${target}`).click();
   const swapped = stemOf(await debug(page, 'bouquet'), id);
   expect(swapped.flower === target && swapped.angle === preSwap.angle && swapped.dist === preSwap.dist, 'swap keeps the position');
 

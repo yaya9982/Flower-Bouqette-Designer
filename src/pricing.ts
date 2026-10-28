@@ -20,8 +20,13 @@ const STEM_CENTS: Record<string, number> = {
 };
 const DEFAULT_STEM_CENTS = 400;
 
-/** Price of one stem of a flower, by its name. */
-export const stemCents = (flowerName: string): number => (Object.hasOwn(STEM_CENTS, flowerName) ? STEM_CENTS[flowerName] : DEFAULT_STEM_CENTS);
+/** Price of one stem of a flower, by its name. A specific name such as "Stargazer lily" or "Red rose" is priced as the kind it ends or starts with. */
+export const stemCents = (flowerName: string): number => {
+  if (Object.hasOwn(STEM_CENTS, flowerName)) return STEM_CENTS[flowerName];
+  const words = flowerName.toLowerCase().split(/[\s-]+/);
+  const kind = Object.keys(STEM_CENTS).find((k) => words.includes(k.toLowerCase()));
+  return kind ? STEM_CENTS[kind] : DEFAULT_STEM_CENTS;
+};
 
 const PAPER_CENTS: Record<PaperId, number> = { none: 0, kraft: 300, tissue: 400, matte: 500 };
 const PAPER_LABELS: Record<PaperId, string> = { none: 'No paper', kraft: 'Kraft paper', tissue: 'Tissue paper', matte: 'Matte paper' };

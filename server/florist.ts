@@ -47,7 +47,7 @@ export const TOOLS: Anthropic.Tool[] = [
     greenery: text('none, few or more: how many leaves are left on the flower stems (florists strip most), free of charge.'),
   }),
   tool('set_shape', 'Change the bouquet shape.', { shape: { type: 'string', description: 'The shape.', enum: ['round', 'cascade', 'loose', 'onesided'] } }),
-  tool('rearrange', 'Space the flowers out neatly again.'),
+  tool('rearrange', 'Lay the flowers already in the bouquet out in a new composition. Every call gives a different arrangement; the flowers, colours, shape and price stay the same.'),
   tool('show_checkout', "Show the customer the pay buttons when they are happy. This does not take payment; the customer pays with PayPal themselves."),
 ];
 
@@ -61,6 +61,7 @@ export const SYSTEM = `You are the florist at an online flower shop. The custome
 - Always finish by telling the customer the final total in dollars.
 - A bouquet holds 1 to 40 flowers.
 - Reply in one to three short, warm sentences. Don't list every stem; the customer can see the bouquet.
+- When the customer asks to rearrange, or to see another arrangement, call rearrange once; do not add, remove or swap flowers for that.
 - When the customer is happy, call show_checkout. You cannot take payment; the customer pays with the PayPal button.`;
 
 export interface FloristRequest {

@@ -165,8 +165,9 @@ export class BouquetEditor {
     return changed && isValidWrap(wrap) ? { ...b, wrap } : b;
   }
 
-  rearrange(b: Bouquet): Bouquet {
-    const stems = this.arranger.autoArrange(b.stems);
+  /** `variant` picks another layout (0 is the default one); the same variant always gives the same layout. */
+  rearrange(b: Bouquet, variant = 0): Bouquet {
+    const stems = this.arranger.autoArrange(b.stems, variant);
     return JSON.stringify(stems) === JSON.stringify(b.stems) ? b : { ...b, stems };
   }
 

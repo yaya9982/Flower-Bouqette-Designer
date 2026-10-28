@@ -1,6 +1,9 @@
 import { MAX_STEMS, MIN_STEMS, type Bouquet, type BowId, type GreeneryId, type PaperId, type ShapeId, type Wrap } from './bouquet';
 import { PAPER_COLOURS, RIBBON_COLOURS, type Catalog, type FlowerType, type NamedColour } from './catalog';
 import type { Preset, Presets } from './presets';
+import { HELP, type HelpKey } from './help';
+import { moveIndex, typeAhead } from './listbox-nav';
+import { rowAt } from './preview-hit';
 import { formatCents, priceBouquet } from './pricing';
 import { SHAPE_OF, SHAPES } from './shapes';
 
@@ -41,6 +44,11 @@ const PAPER_NAMES: Record<PaperId, string> = { none: 'No paper', kraft: 'Kraft',
 /** Size of a flower's preview picture (public/thumbs/<id>.webp, made by tools/thumbnails.py), in CSS pixels. */
 const PREVIEW_SIZE = 128;
 let preview: HTMLImageElement | null = null;
+/** How long the picture stays after the pointer leaves the list, so crossing its edge or the scrollbar does not flicker it. */
+const PREVIEW_GRACE_MS = 150;
+let previewHideTimer = 0;
+/** Where the pointer last was while over the "Add flowers" list; null when it is not over it. Survives a redraw of the list. */
+let listPointer: { x: number; y: number } | null = null;
 
 /**
  * Shows the flower's picture beside its row in the "Add flowers" list, over the 3D view. One shared picture outside
@@ -55,15 +63,20 @@ function showPreview(row: HTMLElement, flowerId: string): void {
     preview.addEventListener('error', hidePreview);
     document.body.append(preview);
   }
+  window.clearTimeout(previewHideTimer);
   const rect = row.getBoundingClientRect();
   const top = Math.min(Math.max(8, rect.top + rect.height / 2 - PREVIEW_SIZE / 2), window.innerHeight - PREVIEW_SIZE - 8);
   preview.style.top = `${top}px`;
   preview.style.left = `${Math.max(8, rect.left - PREVIEW_SIZE - 16)}px`;
-  preview.src = `${import.meta.env.BASE_URL}thumbs/${flowerId}.webp`;
+  if (preview.dataset.flower !== flowerId) {
+    preview.dataset.flower = flowerId;
+    preview.src = `${import.meta.env.BASE_URL}thumbs/${flowerId}.webp`;
+  }
   preview.hidden = false;
 }
 
 function hidePreview(): void {
+  window.clearTimeout(previewHideTimer);
   if (preview) preview.hidden = true;
 }
 
@@ -108,11 +121,154 @@ function select(key: string, label: string, options: { id: string; name: string 
   return el('div', { class: 'field' }, el('label', { for: key }, label), input);
 }
 
+/**
+ * Like `select`, but each option shows the flower's picture (public/thumbs/<id>.webp). A native <option> cannot hold an
+ * image, so this is a button that opens a listbox. Focus moves to the listbox while it is open (aria-activedescendant
+ * names the highlighted option) and returns to the button on close. The root keeps `data-key`; the button's key lets
+ * the panel put focus back on it after a rebuild.
+ */
+function flowerSelect(key: string, label: string, options: { id: string; name: string }[], current: string, onChange: (id: string) => void): HTMLElement {
+  const thumb = (id: string) => {
+    const img = el('img', { class: 'flower-thumb', alt: '', width: '28', height: '28', loading: 'lazy', decoding: 'async', src: `${import.meta.env.BASE_URL}thumbs/${id}.webp` });
+    img.addEventListener('error', () => { img.style.visibility = 'hidden'; });
+    return img;
+  };
+  const known = options.find((o) => o.id === current);
+  const labelId = `${key}-label`;
+  const button = el('button', { type: 'button', id: key, 'data-key': `${key}-button`, class: 'flower-select-button', 'aria-haspopup': 'listbox', 'aria-expanded': 'false', 'aria-labelledby': `${labelId} ${key}` },
+    known ? thumb(known.id) : '', el('span', { class: 'flower-select-name' }, known?.name ?? current));
+  const list = el('ul', { id: `${key}-list`, class: 'flower-select-list', role: 'listbox', tabindex: '-1', 'aria-labelledby': labelId });
+  list.hidden = true;
+  const items = options.map((o) => {
+    const li = el('li', { id: `${key}-opt-${o.id}`, role: 'option', 'aria-selected': String(o.id === current), class: 'flower-select-option' }, thumb(o.id), el('span', {}, o.name));
+    li.addEventListener('click', () => choose(o.id));
+    li.addEventListener('pointermove', () => highlight(items.indexOf(li)));
+    list.append(li);
+    return li;
+  });
+  const names = options.map((o) => o.name);
+  let active = -1;
+  let typed = '';
+  let typedTimer = 0;
+
+  function highlight(i: number): void {
+    if (i < 0 || i === active) return;
+    items[active]?.classList.remove('active');
+    active = i;
+    items[i].classList.add('active');
+    list.setAttribute('aria-activedescendant', items[i].id);
+    items[i].scrollIntoView({ block: 'nearest' });
+  }
+  function onOutside(e: Event): void {
+    if (!root.isConnected) close(false);
+    else if (!root.contains(e.target as Node)) close(false);
+  }
+  function open(): void {
+    list.hidden = false;
+    button.setAttribute('aria-expanded', 'true');
+    document.addEventListener('pointerdown', onOutside, true);
+    highlight(Math.max(0, options.findIndex((o) => o.id === current)));
+    list.focus();
+    items[active].scrollIntoView({ block: 'center' });
+  }
+  function close(refocus: boolean): void {
+    document.removeEventListener('pointerdown', onOutside, true);
+    list.hidden = true;
+    button.setAttribute('aria-expanded', 'false');
+    if (refocus) button.focus();
+  }
+  function choose(id: string): void {
+    close(true);
+    if (id !== current) onChange(id);
+  }
+
+  button.addEventListener('click', () => (list.hidden ? open() : close(true)));
+  button.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); if (list.hidden) open(); }
+  });
+  list.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(true); }
+    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); choose(options[active].id); }
+    else if (e.key === 'Tab') close(false);
+    else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) { e.preventDefault(); highlight(moveIndex(active, items.length, e.key)); }
+    else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      typed += e.key;
+      window.clearTimeout(typedTimer);
+      typedTimer = window.setTimeout(() => { typed = ''; }, 700);
+      // Holding one letter ("rrr") steps through its matches; otherwise match the whole typed text.
+      const q = /^(.)\1+$/.test(typed) ? typed[0] : typed;
+      highlight(typeAhead(names, q, active));
+    }
+  });
+  list.addEventListener('focusout', (e) => {
+    if (!list.hidden && !root.contains(e.relatedTarget as Node | null)) close(false);
+  });
+
+  const root = el('div', { class: 'field flower-select', 'data-key': key }, el('span', { id: labelId }, label), button, list);
+  return root;
+}
+
 function slider(key: string, label: string, min: number, max: number, value: number, onInput: (v: number) => void, onChange: (v: number) => void): HTMLElement {
   const input = el('input', { id: key, 'data-key': key, type: 'range', min: String(min), max: String(max), step: '0.01', value: String(value) });
   input.addEventListener('input', () => onInput(Number(input.value)));
   input.addEventListener('change', () => onChange(Number(input.value)));
   return el('div', { class: 'field' }, el('label', { for: key }, label), input);
+}
+
+/** The "?" demo card: one at a time, floating left of the side panel so opening it moves nothing in the panel. */
+let helpOpen: HelpKey | null = null;
+let helpCard: HTMLElement | null = null;
+let helpListening = false;
+
+function closeHelp(): void {
+  helpOpen = null;
+  helpCard?.remove();
+  helpCard = null;
+  document.querySelectorAll('.help').forEach((b) => b.setAttribute('aria-expanded', 'false'));
+}
+
+/** Shows (or, after the panel is redrawn, re-places) the card of the open "?" next to its button. */
+function showHelp(): void {
+  const key = helpOpen;
+  const trigger = key && document.querySelector<HTMLElement>(`[data-key="help-${key}"]`);
+  if (!key || !trigger) return closeHelp();
+  document.querySelectorAll('.help').forEach((b) => b.setAttribute('aria-expanded', String(b === trigger)));
+  if (helpCard?.dataset.help !== key) {
+    helpCard?.remove();
+    const { title, clip, text } = HELP[key];
+    const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const video = el('video', { src: `${import.meta.env.BASE_URL}demos/${clip}`, muted: '', loop: '', playsinline: '', preload: 'auto', 'aria-label': `Demo: ${title}` });
+    video.muted = true;
+    video.autoplay = !calm;
+    video.controls = calm;
+    video.addEventListener('error', () => { video.hidden = true; });
+    const close = el('button', { type: 'button', class: 'help-close', 'aria-label': 'Close help' }, '×');
+    close.addEventListener('click', closeHelp);
+    helpCard = el('div', { class: 'help-card', role: 'dialog', 'aria-label': `How ${title} works`, 'data-help': key }, el('div', { class: 'help-head' }, el('h3', {}, title), close), video, el('div', { class: 'help-body' }, el('p', {}, text)));
+    document.body.append(helpCard);
+  }
+  const side = document.querySelector('#panel')?.getBoundingClientRect();
+  const at = trigger.getBoundingClientRect();
+  const card = helpCard.getBoundingClientRect();
+  helpCard.style.left = `${Math.max(8, (side?.left ?? at.left) - card.width - 16)}px`;
+  helpCard.style.top = `${Math.min(Math.max(8, at.top - 24), Math.max(8, innerHeight - card.height - 8))}px`;
+}
+
+function toggleHelp(key: HelpKey): void {
+  if (!helpListening) {
+    helpListening = true;
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && helpOpen) { const key = helpOpen; closeHelp(); document.querySelector<HTMLElement>(`[data-key="help-${key}"]`)?.focus(); } });
+    document.addEventListener('pointerdown', (e) => { if (helpOpen && !(e.target as Element).closest('.help-card, .help')) closeHelp(); });
+  }
+  if (helpOpen === key) return closeHelp();
+  helpOpen = key;
+  showHelp();
+}
+
+/** A panel section whose heading carries a "?" button that plays a demo clip and says what the section is for. */
+function helpSection(key: HelpKey, title: string, ...children: Child[]): HTMLElement {
+  const ask = button(`help-${key}`, '?', () => toggleHelp(key), { class: 'help', 'aria-label': `How ${HELP[key].title} works`, 'aria-haspopup': 'dialog', 'aria-expanded': String(helpOpen === key) });
+  return el('section', {}, el('div', { class: 'section-head' }, el('h2', {}, title), ask), ...children);
 }
 
 function section(title: string, ...children: Child[]): HTMLElement {
@@ -198,6 +354,7 @@ export class Panel {
     const { bouquet, selectedId } = state;
     const focusedKey = (document.activeElement as HTMLElement | SVGElement | null)?.dataset?.key;
     const listScroll = root.querySelector('.flower-list')?.scrollTop ?? 0;
+    const bouquetScroll = root.querySelector('.bouquet-list')?.scrollTop ?? 0;
     const total = bouquet.stems.length;
     const full = total >= MAX_STEMS;
     const name = (type: FlowerType) => el('span', { class: 'name' }, type.name, ...(type.title ? [el('small', {}, type.title)] : []));
@@ -207,7 +364,7 @@ export class Panel {
     const bouquetRows = inBouquet.map((type) => {
       const count = bouquet.stems.filter((s) => s.flower === type.id).length;
       const label = flowerLabel(type);
-      return el('div', { class: 'row' },
+      return el('div', { class: 'row', role: 'listitem' },
         name(type),
         button(`minus-${type.id}`, '−', () => actions.removeOne(type.id), { class: 'step', 'aria-label': `Remove one ${label}` }, total <= MIN_STEMS),
         el('span', { class: 'count', 'aria-label': `${count} ${label}` }, String(count)),
@@ -228,12 +385,33 @@ export class Panel {
         name(type),
         button(`plus-${type.id}`, '+', () => actions.add(type.id, colourFilter ?? undefined), { class: 'step', 'aria-label': `Add one ${flowerLabel(type)}` }, full),
       );
-      row.addEventListener('pointerenter', () => showPreview(row, type.id));
       row.addEventListener('focusin', () => showPreview(row, type.id));
-      row.addEventListener('pointerleave', hidePreview);
       row.addEventListener('focusout', hidePreview);
       return row;
     });
+    const flowerList = el('div', { class: 'flower-list', role: 'list', 'aria-label': 'Flowers to add' }, ...addRows);
+    // The whole list is the hitbox: the pointer anywhere in it (on a name, the + button, a gap or the padding) shows the picture
+    // of the row it is over or nearest to. The list may be redrawn or scrolled under a still pointer, so it follows both.
+    const follow = (): void => {
+      if (!listPointer) return;
+      const i = rowAt(addRows.map((r) => { const box = r.getBoundingClientRect(); return { top: box.top, bottom: box.bottom }; }), listPointer.y);
+      if (i >= 0) showPreview(addRows[i], offered[i].id);
+    };
+    const track = (e: PointerEvent): void => {
+      if (e.pointerType === 'touch') return;
+      listPointer = { x: e.clientX, y: e.clientY };
+      follow();
+    };
+    flowerList.addEventListener('pointerenter', track);
+    flowerList.addEventListener('pointermove', track);
+    flowerList.addEventListener('pointerleave', () => {
+      listPointer = null;
+      window.clearTimeout(previewHideTimer);
+      previewHideTimer = window.setTimeout(hidePreview, PREVIEW_GRACE_MS);
+    });
+    flowerList.addEventListener('scroll', follow);
+    // A redraw (after "+", say) replaces the list under a still pointer: show the picture again once the new list is in place.
+    if (listPointer) requestAnimationFrame(() => (flowerList.matches(':hover') ? follow() : (listPointer = null)));
     const pickColour = (id: string | null) => {
       this.colourFilter = id;
       this.render(state, actions);
@@ -245,13 +423,13 @@ export class Panel {
     const sections: HTMLElement[] = [
       el('p', { class: 'price', 'data-key': 'price-total' }, `Total $${formatCents(priceBouquet(bouquet, catalog).totalCents)}`),
       this.presetSection(() => this.render(state, actions), actions),
-      section('Your bouquet', ...bouquetRows, el('p', { class: 'row' }, `${total} of ${MAX_STEMS} flowers`)),
+      helpSection('bouquet', 'Your bouquet', el('div', { class: 'bouquet-list', role: 'list', 'aria-label': 'Flowers in your bouquet' }, ...bouquetRows), el('p', { class: 'row' }, `${total} of ${MAX_STEMS} flowers`)),
       section('Add flowers',
         el('p', { class: 'hint' }, 'Pick a colour on the wheel to narrow the list.'),
         colourWheel(families, catalog.flowers.length, colourFilter, pickColour),
-        el('div', { class: 'flower-list', role: 'list', 'aria-label': 'Flowers to add' }, ...addRows),
+        flowerList,
       ),
-      section('Shape',
+      helpSection('shape', 'Shape',
         select('shape', 'Bouquet shape', SHAPES.map((id) => ({ id, name: SHAPE_OF[id].label })), bouquet.shape, (id) => actions.setShape(id as ShapeId)),
       ),
       section('Wrapping',
@@ -266,34 +444,38 @@ export class Panel {
     const stem = bouquet.stems.find((s) => s.id === selectedId);
     const type = stem && catalog.find(stem.flower);
     if (stem && type) {
-      sections.push(section(`Selected: ${flowerLabel(type)}`,
+      sections.push(helpSection('selected', `Selected: ${flowerLabel(type)}`,
         swatches('flower-colour', 'Colour', type.colours, stem.colour, (id) => actions.recolour(id)),
         slider('height', 'Height', -1, 1, stem.height, (v) => actions.previewAdjust({ height: v }), (v) => actions.adjust({ height: v })),
         slider('tilt', 'Tilt', -0.5, 0.5, stem.tilt, (v) => actions.previewAdjust({ tilt: v }), (v) => actions.adjust({ tilt: v })),
-        select('swap', 'Swap for', catalog.flowers.map((f) => ({ id: f.id, name: flowerLabel(f) })), stem.flower, (id) => actions.swap(id)),
+        flowerSelect('swap', 'Swap for', catalog.flowers.map((f) => ({ id: f.id, name: flowerLabel(f) })), stem.flower, (id) => actions.swap(id)),
         button('remove', 'Remove this flower', () => actions.remove(), { class: 'danger' }, total <= MIN_STEMS),
       ));
     } else {
-      sections.push(section('Selected flower', el('p', {}, 'Click a flower in the 3D view to change it.')));
+      sections.push(helpSection('selected', 'Selected flower', el('p', {}, 'Click a flower in the 3D view to change it.')));
     }
 
-    sections.push(section('Actions', el('div', { class: 'actions' },
+    sections.push(helpSection('actions', 'Actions', el('div', { class: 'actions' },
       button('undo', 'Undo', () => actions.undo(), {}, !state.canUndo),
       button('redo', 'Redo', () => actions.redo(), {}, !state.canRedo),
       button('rearrange', 'Re-arrange', () => actions.rearrange()),
       button('reset-view', 'Reset view', () => actions.resetView()),
     )));
 
-    sections.push(section('About', el('a', { href: `${import.meta.env.BASE_URL}credits.html` }, 'Model credits')));
+    sections.push(section('About', el('a', { href: `${import.meta.env.BASE_URL}credits.html`, class: 'credits-link' }, 'Model credits')));
 
     root.replaceChildren(...sections);
     // The list is rebuilt on every change; keep it where the user had scrolled to.
     const list = root.querySelector('.flower-list');
     if (list) list.scrollTop = listScroll;
+    const mine = root.querySelector('.bouquet-list');
+    if (mine) mine.scrollTop = bouquetScroll;
     if (focusedKey) root.querySelector<HTMLElement | SVGElement>(`[data-key="${focusedKey}"]`)?.focus();
+    if (helpOpen) showHelp();
   }
 
   dispose(): void {
+    closeHelp();
     this.root.replaceChildren();
   }
 

@@ -44,14 +44,22 @@ export class Arranger {
    * with slight natural variation. Each flower takes up room in proportion to its head
    * size, so small heads tuck in tightly between large ones. Resets height and tilt.
    */
-  autoArrange(stems: readonly Stem[]): Stem[] {
+  autoArrange(stems: readonly Stem[], variant = 0): Stem[] {
     const byType = new Map<string, Stem[]>();
     for (const stem of stems) {
       const list = byType.get(stem.flower);
       if (list) list.push(stem);
       else byType.set(stem.flower, [stem]);
     }
-    const lists = [...byType.values()];
+    let lists = [...byType.values()];
+    // Variant 0 is the original layout. Others turn the spiral, rotate which type starts and shuffle each type's slots.
+    if (variant) {
+      const turn = variant % lists.length;
+      lists = [...lists.slice(turn), ...lists.slice(0, turn)];
+      lists = lists.map((l) => [...l].sort((a, b) => hash01(`${a.id}s${variant}`) - hash01(`${b.id}s${variant}`)));
+    }
+    const phase = variant * GOLDEN_ANGLE;
+    const salt = variant ? `${variant}` : '';
     const ordered: Stem[] = [];
     for (let round = 0; ordered.length < stems.length; round++) {
       for (const list of lists) if (list[round]) ordered.push(list[round]);
@@ -66,7 +74,7 @@ export class Arranger {
       used += areas[i];
       return {
         ...stem,
-        angle: n === 1 ? 0 : (i * GOLDEN_ANGLE + (hash01(`${stem.id}a`) - 0.5) * 0.06 + TAU) % TAU,
+        angle: n === 1 ? 0 : (i * GOLDEN_ANGLE + phase + (hash01(`${stem.id}a${salt}`) - 0.5) * 0.06 + TAU) % TAU,
         dist: n === 1 ? 0 : dist,
         height: DEFAULT_HEIGHT + (hash01(stem.id) - 0.5) * 0.2,
         tilt: 0,

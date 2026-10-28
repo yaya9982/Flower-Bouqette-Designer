@@ -13,7 +13,7 @@ import { BINDING, SHAPE_OF, TAU, type ShapeId } from './shapes';
 import { LEAF_FILE } from './greenery';
 import { WrapView } from './wrap';
 
-const BACKGROUND = '#f5f3ef';
+const BACKGROUND = '#ebe8e2';
 const CAMERA_ALPHA = -Math.PI / 2;
 const CAMERA_BETA = 0.95;
 const HIGHLIGHT_COLOUR = '#2f6fed';

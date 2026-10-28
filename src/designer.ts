@@ -21,6 +21,7 @@ export class Designer implements PanelActions {
   private selectedId: string | null = null;
   /** A change being shown but not yet recorded (a slider or a flower mid-drag). */
   private draft: Bouquet | null = null;
+  private variant = 0;
 
   constructor(private readonly parts: DesignerParts) {}
 
@@ -58,7 +59,8 @@ export class Designer implements PanelActions {
   remove(): void { this.apply(this.onSelected((b, id) => this.parts.editor.remove(b, id))); }
   undo(): void { this.parts.history.undo(); this.refresh(); }
   redo(): void { this.parts.history.redo(); this.refresh(); }
-  rearrange(): void { this.apply(this.parts.editor.rearrange(this.present)); }
+  /** Each click is a new variant, so the layout differs every time; undo steps back through them. */
+  rearrange(): void { this.apply(this.parts.editor.rearrange(this.present, ++this.variant)); }
   /** A change worked out elsewhere (the AI florist's tools): one undo step, or none if it changed nothing. */
   applyEdit(change: (b: Bouquet) => Bouquet): void { this.apply(change(this.present)); }
   resetView(): void { this.parts.view.resetView(); }

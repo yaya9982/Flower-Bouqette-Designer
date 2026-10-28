@@ -343,6 +343,8 @@ AUTO_OVERRIDES = {
     '13c8a69f': dict(face=(0, 0, 1)), '1980572e': dict(face=(0, 0, 1)), '569a71cc': dict(face=(0, 0, 1)), '966d0bee': dict(face=(0, 0, 1)),
     # Downloaded later: broken, grey or blob-like previews, a duplicate, or not a flower once cut.
     **{i: dict(skip=True) for i in ('86ea2854', '00350ed1', 'a1390865', 'fe4a503f', '6e47f3a5', '0fba1760', '734a979f', 'b5277921', '822764a5', '44e2546c', '5b567a32', 'b112b871')},
+    # Pruned as less realistic duplicates of a better model of the same flower.
+    **{i: dict(skip=True) for i in ('a9439cdd', '1349c74e', '58ce34c6', '0a0f5b4e', '70c1a3ce', 'e41a6940', 'a25a10ac', '4f70f8d2', '6abf7c73', 'ec9678eb', '172fa50b', '45742e6e', '22d655ad', '7393842c', '782946d2', '339bd121', '3a56a21a', 'e5d347f3', '17fe1a8c', '16996e79', '147016ed', 'a79bb30f', '0ce93a5d', 'ee25e96f', 'b0723478', '58b4bee4', 'aeceb2d4', '111b6d31', '79e7f802', '8728bcf4', 'ac3a99d9')},
     # Faces sideways relative to the stem.
     '1df48628': dict(face=(0, 0, 1)), '56d60886': dict(face=(0, 0, 1)),
     # Wrapping paper, a pot or a vase under the flowers, with no narrow stem between for the cut to find.

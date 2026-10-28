@@ -33,6 +33,8 @@ the 3D models.
   `public/models/parts/`. Their credits are listed by hand in `public/credits.html`; keep them in step with `PARTS`.
 - `python tools/prepare_paper.py`: the paper textures (`public/textures/paper/`) cut from the models in
   `flowers_sources/sketchfab/paper/`. Their credits are listed by hand in `public/credits.html`; keep them in step with `PAPERS`.
+- `node tools/record-demos.mjs [bouquet|actions|shape|selected]` (dev server running, ffmpeg on the PATH): films the demo clips the panel's "?" buttons play
+  (`public/demos/*.mp4`, three scenes each on different bouquets; blue arrow cursor moving at Fitts'-law pace; texts in `src/help.ts`). Re-film them after changing the panel's look.
 - `python tools/thumbnails.py` (run from `tools/`): the flower pictures shown when hovering a row of "Add flowers"
   (`public/thumbs/<id>.webp`). Run it after `prepare_models.py`.
 
@@ -40,7 +42,7 @@ the 3D models.
 
 - `src/bouquet.ts`: the bouquet data, edits, undo history, validation of saved data, save/load (localStorage).
   Edits return the same object when nothing changed, which is how "no undo step" works; keep that.
-- `src/arrange.ts`: placement maths (stem angle, distance, height, tilt to 3D pose; auto-arrange; gaps).
+- `src/arrange.ts`: placement maths (stem angle, distance, height, tilt to 3D pose; auto-arrange, with a `variant` for the Re-arrange button; gaps).
 - `src/catalog.ts`: the six recolourable flowers, colour families, paper and ribbon colours.
   `src/catalog.generated.ts` is written by `tools/prepare_models.py`; do not edit it by hand.
 - `src/presets.ts`: the 30 preset bouquets (3 featured buttons + the rest behind "Explore more"). Each lists its sources and
@@ -49,6 +51,7 @@ the 3D models.
 - `src/scene.ts`, `src/wrap.ts`: Babylon scene, model loading, picking and dragging, paper, ribbon and bow.
 - `src/greenery.ts`: which flower stems keep a leaf ("Leaves on the stems": none, few, more) and where it grows: a pure function of the stem ids and poses, so the same bouquet always gets the same leaves. The leaf is drawn by `FlowerFactory` in `src/flowers.ts` as part of the stem, so it is rebuilt and disposed with its flower. The numbers come from `flowers_sources/leaf_references/NOTES.md`.
 - `src/panel.ts`, `src/main.ts`: the side panel (data-key attributes are used by `tools/steps`) and the wiring.
+  `src/preview-hit.ts`: `rowAt`, which row of the "Add flowers" list the pointer belongs to (the whole list is the hover area, so gaps and edges still show a picture).
 - `tests/`: unit tests, including a check that preset flower heads do not sit inside each other.
 - `flowers_sources/`: original downloads (not loaded by the app, about 1.2 GB, untracked).
   - `sketchfab/<colour>/` + `manifest.json`: downloaded models.
@@ -67,6 +70,10 @@ the 3D models.
 3. `python tools/prepare_models.py auto` prepares them and rewrites the catalogue and credits.
 4. `python tools/contact_sheet.py` (from `tools/`) draws every model to check the cuts; fix bad ones in
    `AUTO_OVERRIDES` in `prepare_models.py`.
+
+Pruned and renamed 2026-10-28: 31 less realistic duplicates are `skip` in `AUTO_OVERRIDES`; names and titles were then set by hand in
+`src/catalog.generated.ts` (and the name in `public/credits.html`), so re-running `prepare_models.py auto` would bring the old
+names back. `stemCents` prices a specific name ("Red rose") as the kind in it ("Rose").
 
 ## Security notes
 

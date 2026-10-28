@@ -58,6 +58,9 @@ function repeat(b: Bouquet, n: number, edit: (b: Bouquet) => Bouquet): { next: B
 }
 
 export class FloristTools {
+  /** Counts the florist's own rearranges, so each one lays the same flowers out differently (variant 0 is the tidy-up layout). */
+  private variant = 0;
+
   constructor(private readonly editor: BouquetEditor, private readonly presets: Presets, private readonly catalog: Catalog) {}
 
   run(b: Bouquet, name: string, input: unknown): ToolResult {
@@ -220,7 +223,7 @@ export class FloristTools {
       }
 
       case 'rearrange':
-        return { next: editor.rearrange(b), result: { ok: true } };
+        return { next: editor.rearrange(b, ++this.variant), result: { ok: true } };
 
       default:
         throw new BadInput(`There is no tool "${name}".`);

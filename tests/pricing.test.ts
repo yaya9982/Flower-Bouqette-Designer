@@ -59,3 +59,13 @@ describe('formatCents', () => {
     for (const name of ['constructor', 'toString', '__proto__']) expect(stemCents(name)).toBe(400);
   });
 });
+
+describe('specific flower names', () => {
+  it('are priced as the kind they contain', () => {
+    expect(stemCents('Stargazer lily')).toBe(stemCents('Lily'));
+    expect(stemCents('Red rose')).toBe(stemCents('Rose'));
+    expect(stemCents('Rose bouquet')).toBe(stemCents('Rose'));
+    expect(stemCents('Phalaenopsis orchid')).toBe(stemCents('Orchid'));
+    expect(stemCents('Marsh marigold')).toBe(400);
+  });
+});

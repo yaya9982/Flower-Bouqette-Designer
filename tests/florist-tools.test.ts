@@ -162,3 +162,23 @@ describe('FloristTools', () => {
     expect(tools.run(b, 'show_checkout', {}).next).toBe(b);
   });
 });
+
+describe('rearrange', () => {
+  it('gives a new composition each time, with the same flowers, colours and price', () => {
+    const florist = new FloristTools(editor, new Presets(editor), catalog);
+    const b = editor.add(editor.add(start(), 'lily'), 'sunflower');
+    const seen = new Set([JSON.stringify(b.stems)]);
+    let now = b;
+    for (let i = 0; i < 5; i++) {
+      const r = florist.run(now, 'rearrange', {});
+      expect(r.isError).toBe(false);
+      expect(r.next).not.toBe(now);
+      expect(seen.has(JSON.stringify(r.next.stems))).toBe(false);
+      seen.add(JSON.stringify(r.next.stems));
+      const kinds = (x: Bouquet) => x.stems.map((s) => `${s.id} ${s.flower} ${s.colour}`).sort();
+      expect(kinds(r.next)).toEqual(kinds(b));
+      expect(r.result.totalCents).toBe(priceBouquet(b, catalog).totalCents);
+      now = r.next;
+    }
+  });
+});
