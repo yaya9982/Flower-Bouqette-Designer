@@ -4,8 +4,8 @@ import { BINDING, SHAPE_OF, TAU, distance, type Pose, type ShapeId, type Vec3 } 
 /**
  * Flowers that make way. Every stem pivots at the tie, so a flower has two free coordinates: where it sits on the
  * bouquet's disc (u, v = dist cos angle, dist sin angle). Contacts are measured in 3D, so a raised flower clears the
- * lower ones and changing a height counts. This is position-based dynamics: positions are corrected directly and
- * velocities follow from them, which stays stable however wild the input.
+ * lower ones and changing a height counts. Free flowers have no momentum: they move only while something pushes them,
+ * never far from home and never fast, then ease back. So the crowd warps around the held flower and cannot bounce.
  */
 
 /** Simulation steps per second. Fixed, so the same input always does the same thing. */
@@ -19,27 +19,32 @@ const CONTACT_PASSES = 3;
 const CONTACT_SOFTNESS = 0.6;
 /** Heads may sink into each other this far before they push, as in a real bouquet: a share of their combined radii. */
 const HEAD_CLEARANCE = 0.85;
-/** The flower being moved takes up all of its room and a little more, so it is seen to shoulder others aside. */
-const HELD_CLEARANCE = 1.08;
+/** The flower being moved takes up all of its room, so it is seen to shoulder others aside. */
+const HELD_CLEARANCE = 1;
 /** How much of a head's radius must stay clear of another flower's stem, and the stem's own half-width in metres. */
 const STEM_CLEARANCE = 0.6;
 const STEM_WIDTH = 0.006;
-/** The spring home, in 1/s²: about 2 swings a second. */
-const SPRING = 190;
-/** Damping, in 1/s: enough for one soft bounce. */
-const DAMPING = 14;
+/** Seconds a free flower takes to cover about two thirds of the way home. */
+const RETURN_TIME = 0.15;
+const RETURN_SHARE = 1 - Math.exp(-STEP / RETURN_TIME);
+/** Furthest a free flower strays from home, as a share of its head's width. */
+const MAX_SHIFT = 0.22;
 /** Fastest a free flower moves, in disc widths (dist units) per second. */
-const MAX_SPEED = 8;
+const MAX_SPEED = 0.35;
+/** Share of a contact passed on from one free flower to the next, so a push fades within a few flowers. */
+const RIPPLE = 0.2;
+/** Share of a push on a flower ahead of the held one that is turned sideways, so it parts instead of being carried along. */
+const SIDEWAYS = 0.8;
 /** The held flower follows the pointer at no more than this speed, so a jump sweeps through the bouquet and cannot skip it. */
 const HELD_SPEED = 6;
 /** The same for height: units of the height setting per second. */
 const HELD_HEIGHT_SPEED = 5;
 /** Metres the held head must travel before its full size counts. It starts out resting in its neighbours' overlaps. */
 const CONTACT_RAMP = 0.03;
-/** Flowers within this many combined radii of the held head are dragged along by it, like liquid around a straw. */
-const VISCOUS_REACH = 2.2;
-/** How strongly, in 1/s. */
-const VISCOSITY = 10;
+/** Flowers within this many combined radii of the held head lean away before they touch it, like liquid around a straw. */
+const CUSHION_REACH = 1.8;
+/** How strongly, in metres per second at the held head. */
+const CUSHION = 0.17;
 /** Below these a flower counts as still, in dist units and dist units per second. */
 const STILL_DISTANCE = 2e-4;
 const STILL_SPEED = 2e-3;
@@ -79,6 +84,7 @@ interface Held {
   ramp: number;
   /** True while working out where a drop ends: it no longer shoulders others, it only needs its place. */
   dropped: boolean;
+  /** The way it is heading: a unit vector, or zero when it has stopped. */
   du: number;
   dv: number;
 }
@@ -130,7 +136,7 @@ export class FlowerPhysics {
       const was = keep?.get(stem.id);
       return {
         id: stem.id, stem, size: this.headSize(stem.flower),
-        u: was?.u ?? home.u, v: was?.v ?? home.v, du: was?.du ?? 0, dv: was?.dv ?? 0,
+        u: was?.u ?? home.u, v: was?.v ?? home.v, du: 0, dv: 0,
         homeU: home.u, homeV: home.v, height: stem.height, pose: null as unknown as Pose, length: 0,
       };
     });
@@ -258,30 +264,50 @@ export class FlowerPhysics {
     const before = this.bodies.map((b) => ({ u: b.u, v: b.v }));
     this.bodies.forEach((b, i) => {
       if (i === heldIndex) return;
-      b.du += (SPRING * (b.homeU - b.u) - DAMPING * b.du) * STEP;
-      b.dv += (SPRING * (b.homeV - b.v) - DAMPING * b.dv) * STEP;
-      b.u += b.du * STEP;
-      b.v += b.dv * STEP;
+      b.u += (b.homeU - b.u) * RETURN_SHARE;
+      b.v += (b.homeV - b.v) * RETURN_SHARE;
     });
     this.measure();
     // With nothing held every flower has a home that is known to work: contacts would only jam them on the way back.
     if (this.held) {
-      this.dragNeighbours();
+      this.cushion();
       for (let pass = 0; pass < CONTACT_PASSES; pass++) {
         this.separate();
         this.measure();
       }
     }
     this.bodies.forEach((b, i) => {
-      if (i === heldIndex) return;
-      b.du = (b.u - before[i].u) / STEP;
-      b.dv = (b.v - before[i].v) / STEP;
-      const speed = Math.hypot(b.du, b.dv);
-      if (speed > MAX_SPEED) {
-        b.du *= MAX_SPEED / speed;
-        b.dv *= MAX_SPEED / speed;
-      }
+      if (i !== heldIndex) this.restrain(b, before[i]);
     });
+  }
+
+  /** Keeps a free flower near home and slow, however hard it was pushed this step. */
+  private restrain(b: Body, was: { u: number; v: number }): void {
+    const reach = this.reach(b);
+    const off = Math.hypot(b.u - b.homeU, b.v - b.homeV);
+    if (off > reach) {
+      b.u = b.homeU + ((b.u - b.homeU) * reach) / off;
+      b.v = b.homeV + ((b.v - b.homeV) * reach) / off;
+    }
+    b.du = (b.u - was.u) / STEP;
+    b.dv = (b.v - was.v) / STEP;
+    const speed = Math.hypot(b.du, b.dv);
+    if (speed > MAX_SPEED) {
+      b.du *= MAX_SPEED / speed;
+      b.dv *= MAX_SPEED / speed;
+      b.u = was.u + b.du * STEP;
+      b.v = was.v + b.dv * STEP;
+    }
+  }
+
+  /** Furthest this flower may stray, in dist units. */
+  private reach(b: Body): number {
+    return (b.size * MAX_SHIFT) / this.radius;
+  }
+
+  /** How much of a push this flower still takes: all of it at home, none at the end of its reach. */
+  private give(b: Body): number {
+    return Math.max(0, 1 - (Math.hypot(b.u - b.homeU, b.v - b.homeV) / this.reach(b)) ** 2);
   }
 
   private moveHeld(): void {
@@ -294,8 +320,8 @@ export class FlowerPhysics {
     const reach = Math.min(1, gap > 0 ? (HELD_SPEED * STEP) / gap : 0);
     b.u += dx * reach;
     b.v += dy * reach;
-    held.du = (dx * reach) / STEP;
-    held.dv = (dy * reach) / STEP;
+    held.du = gap > 0 ? dx / gap : 0;
+    held.dv = gap > 0 ? dy / gap : 0;
     b.du = 0;
     b.dv = 0;
     const climb = held.targetHeight - b.height;
@@ -304,21 +330,22 @@ export class FlowerPhysics {
     held.ramp = Math.max(held.ramp, Math.min(1, distance(b.pose.head, held.from) / CONTACT_RAMP));
   }
 
-  /** Flowers near the held one pick up some of its motion before they touch it. */
-  private dragNeighbours(): void {
+  /** Flowers near the held one lean away from it. It only ever pushes outwards, so shaking cannot whip them about. */
+  private cushion(): void {
     const held = this.held!;
+    if (held.dropped) return;
     const source = this.bodies[held.index];
-    if (held.ramp === 0) return;
     this.bodies.forEach((b, i) => {
       if (i === held.index) return;
-      const reach = (VISCOUS_REACH * (b.size + source.size)) / 2;
+      const reach = (CUSHION_REACH * (b.size + source.size)) / 2;
       const near = 1 - distance(b.pose.head, source.pose.head) / reach;
-      if (near <= 0) return;
-      const pull = near * near * VISCOSITY * STEP;
-      b.du += (held.du - b.du) * pull;
-      b.dv += (held.dv - b.dv) * pull;
-      b.u += held.du * pull * STEP;
-      b.v += held.dv * pull * STEP;
+      const du = b.u - source.u;
+      const dv = b.v - source.v;
+      const apart = Math.hypot(du, dv);
+      if (near <= 0 || apart < 1e-5) return;
+      const push = (held.ramp * near * near * CUSHION * STEP * this.give(b)) / this.radius / apart;
+      b.u += du * push;
+      b.v += dv * push;
     });
   }
 
@@ -343,9 +370,21 @@ export class FlowerPhysics {
           dv = Math.sin(i * GOLDEN_ANGLE + j);
           gap = 1;
         }
-        const push = (CONTACT_SOFTNESS * depth) / this.radius / gap;
-        const shareA = j === heldIndex ? 1 : i === heldIndex ? 0 : 0.5;
-        const shareB = i === heldIndex ? 1 : j === heldIndex ? 0 : 0.5;
+        if (involvesHeld) {
+          const { du: headingU, dv: headingV } = this.held!;
+          const along = du * headingU + dv * headingV;
+          // Ahead of the held flower when the line from it to the other runs the way it is heading.
+          if (along * (i === heldIndex ? -1 : 1) > 0) {
+            const turnedU = du - SIDEWAYS * along * headingU;
+            const turnedV = dv - SIDEWAYS * along * headingV;
+            const turned = Math.hypot(turnedU, turnedV);
+            du = (turnedU * gap) / turned;
+            dv = (turnedV * gap) / turned;
+          }
+        }
+        const push = ((involvesHeld ? 1 : RIPPLE) * CONTACT_SOFTNESS * depth) / this.radius / gap;
+        const shareA = j === heldIndex ? this.give(a) : i === heldIndex ? 0 : 0.5 * this.give(a);
+        const shareB = i === heldIndex ? this.give(b) : j === heldIndex ? 0 : 0.5 * this.give(b);
         a.u += du * push * shareA;
         a.v += dv * push * shareA;
         b.u -= du * push * shareB;

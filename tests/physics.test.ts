@@ -41,7 +41,7 @@ function expectSane(physics: FlowerPhysics, shape: ShapeId, radius: number) {
     // Never past the bouquet's rim.
     expect(SHAPE_OF[shape].surfaceFromPoint(pose.head, radius).dist).toBeLessThanOrEqual(1);
   }
-  expect(physics.topSpeed).toBeLessThanOrEqual(8 + 1e-9);
+  expect(physics.topSpeed).toBeLessThanOrEqual(0.35 + 1e-9);
 }
 
 /** A closest neighbour to a stem, and a spot on the far side of it. */
@@ -95,34 +95,95 @@ describe('FlowerPhysics at rest', () => {
 });
 
 describe('FlowerPhysics while dragging', () => {
-  it('moves a neighbour out of the way, and it springs back once the way is clear', () => {
+  it('moves a neighbour out of the way, and it eases back once the way is clear', () => {
     const b = editor.createDefault();
     const { stem, neighbour } = pushAcross(b);
     const physics = sim(b);
     const start = { ...headOf2(physics, neighbour.id) };
     physics.hold({ ...stem, angle: neighbour.angle, dist: neighbour.dist });
     run(physics, 0.5);
-    expect(distance(headOf(physics, neighbour.id), start)).toBeGreaterThan(0.01);
+    expect(distance(headOf(physics, neighbour.id), start)).toBeGreaterThan(0.005);
     physics.hold(stem);
     run(physics, 0.3);
     physics.load(b.stems, b.shape, arranger.surfaceRadius(b.stems));
-    run(physics, 2);
+    run(physics, 4);
     expect(physics.isAwake).toBe(false);
     expect(distance(headOf(physics, neighbour.id), start)).toBeLessThan(1e-6);
   });
 
-  it('never lets the held flower pass through a neighbour at rest in its path', () => {
+  it('a flower ahead of the held one parts sideways instead of being carried along', () => {
     const b = editor.createDefault();
     const { stem, neighbour } = pushAcross(b);
     const physics = sim(b);
+    const from = { ...headOf2(physics, stem.id) };
+    const start = { ...headOf2(physics, neighbour.id) };
     physics.hold({ ...stem, angle: neighbour.angle, dist: neighbour.dist });
-    let closest = Infinity;
-    for (let i = 0; i < 90; i++) {
-      physics.step(FRAME);
-      if (i > 30) closest = Math.min(closest, distance(headOf(physics, stem.id), headOf(physics, neighbour.id)));
+    run(physics, 0.15);
+    const at = headOf(physics, neighbour.id);
+    const way = { x: start.x - from.x, y: start.y - from.y, z: start.z - from.z };
+    const shift = { x: at.x - start.x, y: at.y - start.y, z: at.z - start.z };
+    const forward = (shift.x * way.x + shift.y * way.y + shift.z * way.z) / Math.hypot(way.x, way.y, way.z);
+    expect(Math.abs(forward)).toBeLessThan(distance(at, start));
+  });
+
+  it('never moves a free flower far from home, however it is shaken', () => {
+    for (const shape of SHAPES) {
+      const b = { ...full(), shape };
+      const radius = arranger.surfaceRadius(b.stems);
+      const physics = sim(b);
+      const homes = new Map(b.stems.map((s) => [s.id, SHAPE_OF[shape].stemPose(s, radius).head]));
+      const stem = b.stems[5];
+      for (let i = 0; i < 300; i++) {
+        physics.hold({ ...stem, angle: (i * 2.4) % 6, dist: (i % 7) / 7 });
+        physics.step(FRAME);
+        for (const s of b.stems) {
+          if (s.id === stem.id) continue;
+          // The disc is curved onto the shape, so a dist unit can be a little longer than the radius.
+          expect(distance(headOf(physics, s.id), homes.get(s.id)!)).toBeLessThan(catalog.headDiameter(s.flower) * 0.75);
+        }
+      }
     }
-    const combined = (catalog.headDiameter(stem.flower) + catalog.headDiameter(neighbour.flower)) / 2;
-    expect(closest).toBeGreaterThan(combined * 0.5);
+  });
+
+  it('a violent shake disturbs the crowd little more than a slow pass through it', () => {
+    const b = full();
+    const stem = b.stems.find((s) => s.dist > 0.3 && s.dist < 0.6)!;
+    const worst = (input: (i: number) => Stem, frames: number) => {
+      const physics = sim(b);
+      const homes = new Map(b.stems.map((s) => [s.id, { ...headOf2(physics, s.id) }]));
+      let top = 0;
+      for (let i = 0; i < frames; i++) {
+        physics.hold(input(i));
+        physics.step(FRAME);
+        for (const s of b.stems) if (s.id !== stem.id) top = Math.max(top, distance(headOf(physics, s.id), homes.get(s.id)!));
+      }
+      return top;
+    };
+    const slow = worst((i) => ({ ...stem, angle: stem.angle + i / 120 }), 240);
+    const shake = worst((i) => ({ ...stem, angle: stem.angle + (i % 2 ? 1 : -1) }), 240);
+    expect(shake).toBeLessThanOrEqual(slow * 1.5);
+  });
+
+  it('flowers ease home without passing it', () => {
+    const b = editor.createDefault();
+    const { stem, neighbour } = pushAcross(b);
+    const physics = sim(b);
+    const start = { ...headOf2(physics, neighbour.id) };
+    physics.hold({ ...stem, angle: neighbour.angle, dist: neighbour.dist });
+    run(physics, 0.3);
+    physics.hold(stem);
+    physics.settle(b.stems, stem.id);
+    physics.load(b.stems, b.shape, arranger.surfaceRadius(b.stems));
+    const gaps: number[] = [];
+    for (let i = 0; physics.isAwake && i < 300; i++) {
+      physics.step(FRAME);
+      gaps.push(distance(headOf(physics, neighbour.id), start));
+    }
+    expect(physics.isAwake).toBe(false);
+    gaps.reduce((last, gap) => {
+      expect(gap).toBeLessThanOrEqual(last + 1e-9);
+      return gap;
+    }, Infinity);
   });
 
   it('reaches flowers it does not touch through the crowd', () => {
@@ -133,7 +194,7 @@ describe('FlowerPhysics while dragging', () => {
     physics.hold({ ...stem, angle: stem.angle, dist: 0.8 });
     run(physics, 0.6);
     const moved = b.stems.filter((s) => distance(headOf(physics, s.id), before.get(s.id)!) > 0.002);
-    expect(moved.length).toBeGreaterThan(5);
+    expect(moved.length).toBeGreaterThan(2);
   });
 });
 
@@ -305,7 +366,7 @@ describe('FlowerPhysics and height', () => {
 });
 
 describe('FlowerPhysics on drop', () => {
-  it('leaves the dropped flower exactly where it was put and clears the flower it landed on', () => {
+  it('leaves the dropped flower exactly where it was put and only nudges the flower it landed on', () => {
     const b = full();
     const radius = arranger.surfaceRadius(b.stems);
     const { stem, neighbour } = pushAcross(b);
@@ -316,8 +377,9 @@ describe('FlowerPhysics on drop', () => {
     expect(settled.find((s) => s.id === stem.id)).toEqual(dropped);
     const shape = SHAPE_OF[b.shape];
     const moved = settled.find((s) => s.id === neighbour.id)!;
-    const combined = (catalog.headDiameter(stem.flower) + catalog.headDiameter(neighbour.flower)) / 2;
-    expect(distance(shape.stemPose(dropped, radius).head, shape.stemPose(moved, radius).head)).toBeGreaterThan(combined * 0.65);
+    const shift = distance(shape.stemPose(neighbour, radius).head, shape.stemPose(moved, radius).head);
+    expect(shift).toBeGreaterThan(0.001);
+    expect(shift).toBeLessThan(catalog.headDiameter(neighbour.flower) * 0.75);
   });
 
   it('a small nudge leaves the rest of a full bouquet almost untouched', () => {
