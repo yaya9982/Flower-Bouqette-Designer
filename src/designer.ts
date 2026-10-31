@@ -3,7 +3,7 @@ import type { Panel, PanelActions } from './panel';
 import type { Presets } from './presets';
 import type { BouquetView } from './scene';
 
-type View = Pick<BouquetView, 'render' | 'resetView' | 'onSelect' | 'onDragMove' | 'onDragEnd' | 'dispose'>;
+type View = Pick<BouquetView, 'render' | 'settle' | 'resetView' | 'onSelect' | 'onDragMove' | 'onDragEnd' | 'dispose'>;
 
 export interface DesignerParts {
   editor: BouquetEditor;
@@ -42,7 +42,7 @@ export class Designer implements PanelActions {
     };
     view.onDragMove = (stemId, angle, dist) => this.preview(editor.move(history.present, stemId, angle, dist));
     view.onDragEnd = () => {
-      if (this.draft) this.apply(this.draft);
+      if (this.draft) this.apply(view.settle(this.draft, this.selectedId));
     };
     keys.addEventListener('keydown', this.onKey);
     this.refresh();
@@ -54,7 +54,7 @@ export class Designer implements PanelActions {
   setWrap(patch: Partial<Wrap>): void { this.apply(this.parts.editor.setWrap(this.present, patch)); }
   recolour(colourId: string): void { this.apply(this.onSelected((b, id) => this.parts.editor.recolour(b, id, colourId))); }
   previewAdjust(patch: { height?: number; tilt?: number }): void { this.preview(this.onSelected((b, id) => this.parts.editor.adjust(b, id, patch))); }
-  adjust(patch: { height?: number; tilt?: number }): void { this.apply(this.onSelected((b, id) => this.parts.editor.adjust(b, id, patch))); }
+  adjust(patch: { height?: number; tilt?: number }): void { this.apply(this.parts.view.settle(this.onSelected((b, id) => this.parts.editor.adjust(b, id, patch)), this.selectedId)); }
   swap(flowerId: string): void { this.apply(this.onSelected((b, id) => this.parts.editor.swap(b, id, flowerId))); }
   remove(): void { this.apply(this.onSelected((b, id) => this.parts.editor.remove(b, id))); }
   undo(): void { this.parts.history.undo(); this.refresh(); }
@@ -108,7 +108,8 @@ export class Designer implements PanelActions {
   /** Show a change in the 3D view only. */
   private preview(next: Bouquet): void {
     this.draft = next;
-    this.parts.view.render(next, this.selectedId);
+    // The flower being changed is always the selected one; the view moves the others out of its way.
+    this.parts.view.render(next, this.selectedId, this.selectedId);
   }
 
   private onSelected(change: (b: Bouquet, stemId: string) => Bouquet): Bouquet {

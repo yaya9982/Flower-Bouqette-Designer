@@ -13,6 +13,7 @@ function setup() {
   const view = {
     renders: [] as { bouquet: Bouquet; selectedId: string | null }[],
     render(bouquet: Bouquet, selectedId: string | null) { this.renders.push({ bouquet, selectedId }); calls.push('view.render'); },
+    settle(bouquet: Bouquet) { return bouquet; },
     resetView() { calls.push('view.resetView'); },
     dispose() { calls.push('view.dispose'); },
     onSelect: (_: string | null) => {},
@@ -67,6 +68,19 @@ describe('Designer', () => {
     expect(history.present.stems[0]).toMatchObject({ angle: 1.4, dist: 0.7 });
     history.undo();
     expect(history.present).toBe(before);
+  });
+
+  it('a drop keeps the neighbours the view moved, as one undo step, and a draft names the flower being moved', () => {
+    const { designer, view, history } = setup();
+    const [stem, other] = history.present.stems;
+    view.settle = (b: Bouquet) => ({ ...b, stems: b.stems.map((s) => (s.id === other.id ? { ...s, dist: 0.123 } : s)) });
+    view.onSelect(stem.id);
+    view.onDragMove(stem.id, 1, 0.5);
+    view.onDragEnd();
+    expect(designer.shown.stems.find((s) => s.id === other.id)!.dist).toBe(0.123);
+    designer.undo();
+    expect(designer.shown.stems.find((s) => s.id === other.id)).toEqual(other);
+    expect(designer.shown.stems.find((s) => s.id === stem.id)).toEqual(stem);
   });
 
   it('previewAdjust draws the view only, and shown is the draft', () => {

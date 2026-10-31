@@ -9,6 +9,7 @@ import type { Bouquet } from './bouquet';
 import type { Catalog } from './catalog';
 import { FlowerFactory, FlowerViews, ModelLibrary, partModel, v3 } from './flowers';
 import { PaperTextures } from './paper-textures';
+import { FlowerPhysics } from './physics';
 import { BINDING, SHAPE_OF, TAU, type ShapeId } from './shapes';
 import { LEAF_FILE } from './greenery';
 import { WrapView } from './wrap';
@@ -169,7 +170,9 @@ export class BouquetView {
   private readonly wrap: WrapView;
   private readonly pointerObserver: Observer<PointerInfo>;
 
-  private lastRender: { bouquet: Bouquet; selectedId: string | null } | null = null;
+  private readonly physics: FlowerPhysics;
+
+  private lastRender: { bouquet: Bouquet; selectedId: string | null; heldId: string | null } | null = null;
   private highlighted: TransformNode | null = null;
   private currentShape: ShapeId = 'round';
   private currentSelected: string | null = null;
@@ -181,6 +184,7 @@ export class BouquetView {
 
   constructor(canvas: HTMLCanvasElement, catalog: Catalog) {
     this.arranger = new Arranger(catalog);
+    this.physics = new FlowerPhysics((flower) => catalog.headDiameter(flower));
     const engine = new Engine(canvas, true, { stencil: true });
     const scene = new Scene(engine);
     this.engine = engine;
@@ -215,7 +219,7 @@ export class BouquetView {
     this.factory = new FlowerFactory(scene, shadows);
     // A model that finishes loading redraws whatever was last shown, which may be a draft.
     this.models = new ModelLibrary(scene, () => {
-      if (this.lastRender) this.render(this.lastRender.bouquet, this.lastRender.selectedId);
+      if (this.lastRender) this.render(this.lastRender.bouquet, this.lastRender.selectedId, this.lastRender.heldId);
     });
     this.flowers = new FlowerViews(this.factory, this.models, catalog, partModel('stem.glb'), partModel(LEAF_FILE));
     this.highlight = new HighlightLayer('highlight', scene);
@@ -229,10 +233,14 @@ export class BouquetView {
     this.pointerObserver = scene.onPointerObservable.add(this.onPointer);
   }
 
-  render(bouquet: Bouquet, selectedId: string | null): void {
-    this.lastRender = { bouquet, selectedId };
+  /** `heldId` is the flower the customer is moving in this draft; the others make way for it. */
+  render(bouquet: Bouquet, selectedId: string | null, heldId: string | null = null): void {
+    this.lastRender = { bouquet, selectedId, heldId };
     const radius = this.arranger.surfaceRadius(bouquet.stems);
     const lowest = this.flowers.sync(bouquet, radius);
+    const held = bouquet.stems.find((s) => s.id === heldId);
+    if (held) this.physics.hold(held);
+    else this.physics.load(bouquet.stems, bouquet.shape, radius);
 
     // A cascading bouquet hangs below its stems; lower the floor so nothing sinks into it.
     this.ground.position.y = lowest - 0.01;
@@ -245,6 +253,17 @@ export class BouquetView {
     this.applyHighlight(selectedId);
     this.wrap.update(bouquet.wrap, bouquet.shape, radius);
     this.rig.follow(reach, this.ground.position.y);
+  }
+
+  /** The bouquet once the flower just let go has come to rest: its neighbours stay moved if it left them no room. */
+  settle(bouquet: Bouquet, heldId: string | null): Bouquet {
+    const stems = this.physics.settle(bouquet.stems, heldId);
+    return stems === bouquet.stems ? bouquet : { ...bouquet, stems: [...stems] };
+  }
+
+  /** For the browser checks: what the physics is doing now. */
+  physicsState(): { awake: boolean; topSpeed: number; heads: { id: string; x: number; y: number; z: number }[] } {
+    return { awake: this.physics.isAwake, topSpeed: this.physics.topSpeed, heads: this.physics.poses().map(({ id, pose }) => ({ id, ...pose.head })) };
   }
 
   resetView(): void {
@@ -287,7 +306,12 @@ export class BouquetView {
     this.engine.dispose();
   }
 
-  private readonly draw = () => this.scene.render();
+  private readonly draw = () => {
+    if (this.physics.step(this.engine.getDeltaTime() / 1000)) {
+      for (const { id, pose } of this.physics.poses()) this.flowers.swing(id, pose);
+    }
+    this.scene.render();
+  };
   private readonly onResize = () => this.engine.resize();
 
   /**

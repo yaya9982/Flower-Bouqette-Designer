@@ -207,6 +207,9 @@ export class FlowerView {
   private stem: TransformNode | null = null;
   /** Head position and facing this flower was last placed at. */
   private placed = '';
+  /** The pose its stem was built for, and whether `swing` has moved it away from that. */
+  private built: Pose | null = null;
+  private swung = false;
 
   /** `look` is the flower type and colour this view was built for. */
   constructor(private readonly factory: FlowerFactory, type: FlowerType, hex: string, stemId: string,
@@ -219,12 +222,45 @@ export class FlowerView {
     const leafKey = leaves ? leaves.plans.map((p) => [p.base.x, p.base.y, p.base.z, p.dir.x, p.dir.y, p.dir.z, p.length, p.mirrored ? 1 : 0].map((n) => n.toFixed(5)).join(',')).join(';') : '';
     const placed = [pose.head.x, pose.head.y, pose.head.z, pose.face.x, pose.face.y, pose.face.z].map((n) => n.toFixed(5)).join(',')
       + (stemModel ? '|model' : '|tube') + '|' + leafKey;
-    if (this.placed === placed) return;
-    this.root.position = v3(pose.head);
-    this.root.rotationQuaternion = Quaternion.FromUnitVectorsToRef(Vector3.Up(), v3(pose.face), new Quaternion());
+    if (this.placed === placed) {
+      if (this.swung) this.unswing(pose);
+      return;
+    }
+    this.aim(pose);
     this.stem?.dispose();
     this.stem = this.factory.stem(shape, pose, stemId, headDiameter, stemModel, leaves);
     this.placed = placed;
+    this.built = pose;
+    this.swung = false;
+  }
+
+  /**
+   * Moves the flower without rebuilding it, for the physics: every stem pivots at the tie, so the built stem and its
+   * leaves are turned about the tie and scaled to the new length. The next `place` puts it right.
+   */
+  swing(pose: Pose): void {
+    if (!this.built || !this.stem) return;
+    this.aim(pose);
+    const tie = v3(BINDING);
+    const turn = Quaternion.FromUnitVectorsToRef(v3(this.built.dir), v3(pose.dir), new Quaternion());
+    const scale = Vector3.Distance(v3(pose.head), tie) / Math.max(1e-6, Vector3.Distance(v3(this.built.head), tie));
+    this.stem.rotationQuaternion = turn;
+    this.stem.scaling.setAll(scale);
+    this.stem.position = tie.subtract(tie.applyRotationQuaternion(turn).scale(scale));
+    this.swung = true;
+  }
+
+  private unswing(pose: Pose): void {
+    this.aim(pose);
+    this.stem!.rotationQuaternion = Quaternion.Identity();
+    this.stem!.scaling.setAll(1);
+    this.stem!.position.setAll(0);
+    this.swung = false;
+  }
+
+  private aim(pose: Pose): void {
+    this.root.position = v3(pose.head);
+    this.root.rotationQuaternion = Quaternion.FromUnitVectorsToRef(Vector3.Up(), v3(pose.face), new Quaternion());
   }
 
   dispose(): void {
@@ -298,6 +334,10 @@ export class FlowerViews {
 
   root(stemId: string): TransformNode | undefined {
     return this.views.get(stemId)?.root;
+  }
+
+  swing(stemId: string, pose: Pose): void {
+    this.views.get(stemId)?.swing(pose);
   }
 
   dispose(): void {

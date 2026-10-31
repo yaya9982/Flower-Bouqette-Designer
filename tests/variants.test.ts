@@ -60,7 +60,7 @@ describe('autoArrange variants', () => {
 
 describe('Designer.rearrange', () => {
   function setup(b: Bouquet = editor.createDefault()) {
-    const view = { render() {}, resetView() {}, dispose() {}, onSelect: (_: string | null) => {}, onDragMove: (_s: string, _a: number, _d: number) => {}, onDragEnd: () => {} };
+    const view = { render() {}, settle: (b: Bouquet) => b, resetView() {}, dispose() {}, onSelect: (_: string | null) => {}, onDragMove: (_s: string, _a: number, _d: number) => {}, onDragEnd: () => {} };
     const panel = { render() {}, dispose() {} };
     const store = new BouquetStore(editor, { getItem: () => null, setItem: () => {} });
     const history = new History(b);

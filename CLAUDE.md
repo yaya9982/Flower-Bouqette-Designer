@@ -50,6 +50,7 @@ the 3D models.
   `RANDOM_OPENS_LIST` in `src/panel.ts` makes "Explore more" open a list for testing; set it to false for a real random pick.
 - `src/scene.ts`, `src/wrap.ts`: Babylon scene, model loading, picking and dragging, paper, ribbon and bow.
 - `src/greenery.ts`: which flower stems keep a leaf ("Leaves on the stems": none, few, more) and where it grows: a pure function of the stem ids and poses, so the same bouquet always gets the same leaves. The leaf is drawn by `FlowerFactory` in `src/flowers.ts` as part of the stem, so it is rebuilt and disposed with its flower. The numbers come from `flowers_sources/leaf_references/NOTES.md`.
+- `src/physics.ts`: `FlowerPhysics`, flowers making way while one is dragged or its height changes (no Babylon in it; `tests/physics.test.ts` covers violent input). `BouquetView` steps it every frame, `FlowerView.swing` moves the flowers without rebuilding them, and on release `settle` works out the rest result, committed as one undo step.
 - `src/panel.ts`, `src/main.ts`: the side panel (data-key attributes are used by `tools/steps`) and the wiring.
   `src/preview-hit.ts`: `rowAt`, which row of the "Add flowers" list the pointer belongs to (the whole list is the hover area, so gaps and edges still show a picture).
 - `tests/`: unit tests, including a check that preset flower heads do not sit inside each other.

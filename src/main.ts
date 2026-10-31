@@ -34,6 +34,7 @@ if (import.meta.env.DEV) {
       selected: () => designer.selected,
       screenOf: (stemId: string) => view.screenPosition(stemId),
       fps: () => view.fps(),
+      physics: () => view.physicsState(),
     },
   });
 }
