@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type Anthropic from '@anthropic-ai/sdk';
 import type { ToolName } from '../src/florist-tools';
-import { EXTRA_KINDS } from './extras';
 
 /**
  * The AI florist. Claude decides what to do; the browser does it (src/florist-tools.ts) and sends back what happened.
@@ -50,11 +49,6 @@ export const TOOLS: Anthropic.Tool[] = [
   tool('set_shape', 'Change the bouquet shape.', { shape: { type: 'string', description: 'The shape.', enum: ['round', 'cascade', 'loose', 'onesided'] } }),
   tool('rearrange', 'Lay the flowers already in the bouquet out in a new composition. Every call gives a different arrangement; the flowers, colours, shape and price stay the same.'),
   tool('show_checkout', "Show the customer the pay buttons when they are happy. This does not take payment; the customer pays with PayPal themselves."),
-  tool('suggest_extras', 'Search real shops for a gift to go with the bouquet and show the customer cards with buy links. They buy these at the retailer, so they never change the bouquet or totalCents.', {
-    kind: { type: 'string', description: 'What to look for.', enum: EXTRA_KINDS },
-    details: text('A few words of style or colour, e.g. "clear glass". Empty string for none.'),
-    maxDollars: whole('Highest price in whole dollars, or 0 for no limit.'),
-  }),
 ];
 
 export const SYSTEM = `You are the florist at an online flower shop. The customer is looking at their bouquet in a 3D designer, and you build it for them with the tools; every change appears in front of them.
@@ -68,8 +62,7 @@ export const SYSTEM = `You are the florist at an online flower shop. The custome
 - A bouquet holds 1 to 40 flowers.
 - Reply in one to three short, warm sentences. Don't list every stem; the customer can see the bouquet.
 - When the customer asks to rearrange, or to see another arrangement, call rearrange once; do not add, remove or swap flowers for that.
-- When the customer is happy, call show_checkout. You cannot take payment; the customer pays with the PayPal button.
-- You may offer a vase, chocolates, a card or a plant once, after the bouquet is done. Call suggest_extras only if the customer wants one or asks for one, once per kind. The customer can see the cards, so don't repeat them. They buy extras at the retailer, so never add them to the bouquet total or pay for them; if none are found or the search fails, say so in a few words and carry on.`;
+- When the customer is happy, call show_checkout. You cannot take payment; the customer pays with the PayPal button.`;
 
 export interface FloristRequest {
   sessionId?: string;

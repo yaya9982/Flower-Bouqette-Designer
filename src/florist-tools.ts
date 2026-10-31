@@ -10,7 +10,7 @@ import { priceBouquet, stemCents } from './pricing';
  */
 export const TOOL_NAMES = [
   'get_design', 'search_flowers', 'list_presets', 'load_preset', 'add_flowers', 'remove_flowers',
-  'recolour_flowers', 'swap_flowers', 'set_wrap', 'set_shape', 'rearrange', 'show_checkout', 'suggest_extras',
+  'recolour_flowers', 'swap_flowers', 'set_wrap', 'set_shape', 'rearrange', 'show_checkout',
 ] as const;
 export type ToolName = (typeof TOOL_NAMES)[number];
 
@@ -224,10 +224,6 @@ export class FloristTools {
 
       case 'rearrange':
         return { next: editor.rearrange(b, ++this.variant), result: { ok: true } };
-
-      // A live search the chat runs itself (src/florist-chat.ts), because this method cannot wait for one.
-      case 'suggest_extras':
-        throw new BadInput('Gift extras can only be shown in the chat.');
 
       default:
         throw new BadInput(`There is no tool "${name}".`);
