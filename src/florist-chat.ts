@@ -1,4 +1,5 @@
 import type { Designer } from './designer';
+import { extrasCards, findExtras } from './extras';
 import type { FloristTools, ToolResult } from './florist-tools';
 import { GeminiFlorist, type Reply } from './florist-gemini';
 
@@ -11,7 +12,7 @@ const STEP_LABELS: Record<string, string> = {
   get_design: 'Looked at your bouquet', search_flowers: 'Searched the flowers', list_presets: 'Looked at the ready-made bouquets',
   load_preset: 'Started from a ready-made bouquet', add_flowers: 'Added flowers', remove_flowers: 'Removed flowers',
   recolour_flowers: 'Changed colours', swap_flowers: 'Swapped flowers', set_wrap: 'Changed the wrapping',
-  set_shape: 'Changed the shape', rearrange: 'Tidied the arrangement', show_checkout: 'Ready to pay',
+  set_shape: 'Changed the shape', rearrange: 'Tidied the arrangement', show_checkout: 'Ready to pay', suggest_extras: 'Looked in the shops',
 };
 
 /** Set at build time for the static site: the Cloudflare Worker that runs the florist on Gemini. */
@@ -107,7 +108,7 @@ export class FloristChat {
         if (reply.done || reply.toolCalls.length === 0) break;
         const toolResults = [];
         for (const call of reply.toolCalls) {
-          const result = this.runTool(call);
+          const result = call.name === 'suggest_extras' ? await this.runExtras(call) : this.runTool(call);
           toolResults.push({ toolUseId: call.id, content: JSON.stringify(result.result), isError: result.isError });
           await new Promise((r) => setTimeout(r, STEP_PAUSE_MS));
         }
@@ -124,6 +125,21 @@ export class FloristChat {
       this.say('error', (error as Error).message);
     } finally {
       this.setRunning(false);
+    }
+  }
+
+  /** A live search, outside the design: no undo step, and a failure only tells the florist to carry on. */
+  private async runExtras(call: ToolCall): Promise<Pick<ToolResult, 'result' | 'isError'>> {
+    try {
+      const extras = await findExtras(call.input);
+      this.say('step', extras.length ? STEP_LABELS.suggest_extras : `${STEP_LABELS.suggest_extras}: nothing found`);
+      if (extras.length) this.log.append(extrasCards(extras));
+      this.log.scrollTop = this.log.scrollHeight;
+      return { result: { shown: extras.map((e) => ({ title: e.title, priceCents: e.priceCents, retailer: e.retailer })) }, isError: false };
+    } catch (error) {
+      const message = (error as Error).message;
+      this.say('step', `${STEP_LABELS.suggest_extras}: ${message}`);
+      return { result: { error: message }, isError: true };
     }
   }
 

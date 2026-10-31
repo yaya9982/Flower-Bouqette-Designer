@@ -5,10 +5,11 @@ import { extname, join } from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 import { BouquetEditor } from '../src/bouquet';
 import { Catalog, FLOWERS } from '../src/catalog';
+import { searchExtras } from './extras';
 import { FloristSessions, SYSTEM, TOOLS, type FloristRequest } from './florist';
 import { OrderStore } from './orders';
 import { PayPalApi } from './paypal';
-import { boardHandler, captureHandler, clientIp, createOrderHandler, MIN_FLORIST_KEY, pathOf, RateLimiter, staticFile, type Reply } from './routes';
+import { boardHandler, captureHandler, clientIp, createOrderHandler, extrasHandler, MIN_FLORIST_KEY, pathOf, RateLimiter, staticFile, type Reply } from './routes';
 
 if (existsSync('.env')) process.loadEnvFile('.env');
 
@@ -64,6 +65,7 @@ const florist = new FloristSessions((messages) => {
 const apiLimit = new RateLimiter(60, 60_000);
 const orderLimit = new RateLimiter(10, 60_000);
 const newChatLimit = new RateLimiter(10, 60_000);
+const extrasLimit = new RateLimiter(10, 60_000);
 
 class HttpError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
@@ -102,6 +104,11 @@ async function route(req: IncomingMessage, path: string, ip: string): Promise<Re
       return { error: 'The florist is unavailable right now. Please try again.', status: 502 };
     });
     return 'error' in reply ? { status: 'status' in reply ? reply.status : 400, body: { error: reply.error } } : { status: 200, body: reply };
+  }
+  if (method === 'POST' && path === '/api/extras') {
+    if (!extrasLimit.allow(ip)) return { status: 429, body: { error: 'Too many searches; wait a minute.' } };
+    const key = process.env.CHANNEL3_API_KEY;
+    return extrasHandler(await readJson(req), key ? (request) => searchExtras(request, key) : null);
   }
   if (path.startsWith('/api/board/')) {
     const key = req.headers['x-florist-key'];

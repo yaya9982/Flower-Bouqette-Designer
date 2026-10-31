@@ -32,7 +32,7 @@ describe('florist worker', () => {
     const body = JSON.parse(String(sent!.init.body));
     expect(body.systemInstruction.parts[0].text).toContain('florist');
     const decls = body.tools[0].functionDeclarations;
-    expect(decls).toHaveLength(12);
+    expect(decls).toHaveLength(13);
     const add = decls.find((d: any) => d.name === 'add_flowers');
     expect(add.parameters.type).toBe('OBJECT');
     expect(add.parameters.properties.count.type).toBe('INTEGER');

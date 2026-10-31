@@ -1,5 +1,5 @@
 # The AI florist's Worker. Deploy: npx wrangler deploy -c worker/wrangler.toml
-# The key is a secret, never in this file: npx wrangler secret put GEMINI_API_KEY -c worker/wrangler.toml
+# The keys are secrets, never in this file: npx wrangler secret put GEMINI_API_KEY -c worker/wrangler.toml (and CHANNEL3_API_KEY)
 name = "bouquet-florist"
 main = "index.ts"
 compatibility_date = "2026-10-01"

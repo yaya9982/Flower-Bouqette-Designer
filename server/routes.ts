@@ -3,6 +3,7 @@ import { join, resolve, sep } from 'node:path';
 import type { BouquetEditor } from '../src/bouquet';
 import type { Catalog } from '../src/catalog';
 import { formatCents, priceBouquet } from '../src/pricing';
+import { parseExtrasRequest, type Extra, type ExtrasRequest } from './extras';
 import { parseCheckout, type OrderStore, type StoredOrder } from './orders';
 import { buildOrderBody, type PayPalApi } from './paypal';
 
@@ -67,6 +68,19 @@ async function capture(store: OrderStore, paypal: PayPalApi, paypalOrderId: stri
     return { status: 402, body: { error: 'The amount paid does not match the order. Contact the shop.' } };
   }
   return paidReply(store.update(order.ref, { status: 'PAID', captureId: result.captureId }));
+}
+
+/** POST /api/extras: one Channel3 search. `search` is absent when no key is set, and the shop works without it. */
+export async function extrasHandler(body: unknown, search: ((request: ExtrasRequest) => Promise<Extra[]>) | null): Promise<Reply> {
+  const request = parseExtrasRequest(body);
+  if (typeof request === 'string') return { status: 400, body: { error: request } };
+  if (!search) return { status: 503, body: { error: 'Gift extras are not set up.' } };
+  try {
+    return { status: 200, body: { extras: await search(request) } };
+  } catch (error) {
+    console.error(error);
+    return { status: 502, body: { error: 'Gift extras are unavailable right now.' } };
+  }
 }
 
 /** The path of a request target, or null when it cannot be read (a bad request, not a crash). */

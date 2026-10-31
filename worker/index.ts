@@ -1,3 +1,4 @@
+import { parseExtrasRequest, searchExtras } from '../server/extras';
 import { SYSTEM, TOOLS } from '../server/florist';
 
 /**
@@ -5,7 +6,7 @@ import { SYSTEM, TOOLS } from '../server/florist';
  * one step of the chat to Gemini. The browser keeps the conversation and runs the tools (src/florist-gemini.ts).
  */
 
-export interface Env { GEMINI_API_KEY: string }
+export interface Env { GEMINI_API_KEY: string; CHANNEL3_API_KEY?: string }
 
 /** Free models, tried in order; the next one is used when one is out of quota for the day. */
 export const MODELS = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
@@ -68,6 +69,20 @@ function validContents(contents: unknown): contents is { role: string; parts: un
       && c.parts.every((p: unknown) => validPart(p, c.role)));
 }
 
+/** One Channel3 search for the chat, counted against the same daily cap as the florist. */
+async function extras(body: unknown, request: Request, env: Env, fetchFn: typeof fetch, now: number, reply: (status: number, body: object) => Response): Promise<Response> {
+  const search = parseExtrasRequest(body);
+  if (typeof search === 'string') return reply(400, { error: search });
+  if (!env.CHANNEL3_API_KEY) return reply(503, { error: 'Gift extras are not set up.' });
+  if (overCap(request.headers.get('cf-connecting-ip') ?? 'unknown', now)) return reply(429, { error: "You've searched a lot today." });
+  try {
+    return reply(200, { extras: await searchExtras(search, env.CHANNEL3_API_KEY, fetchFn) });
+  } catch (error) {
+    console.log(`Channel3 search failed: ${(error as Error).message}`);
+    return reply(502, { error: 'Gift extras are unavailable right now.' });
+  }
+}
+
 export async function handle(request: Request, env: Env, fetchFn: typeof fetch = fetch, now = Date.now()): Promise<Response> {
   const origin = request.headers.get('origin') ?? '';
   const cors = ORIGINS.includes(origin) ? { 'access-control-allow-origin': origin, 'access-control-allow-headers': 'content-type', vary: 'origin' } : null;
@@ -81,8 +96,10 @@ export async function handle(request: Request, env: Env, fetchFn: typeof fetch =
   if (Number(request.headers.get('content-length') ?? 0) > MAX_BODY) return reply(413, { error: 'This chat is too long. Start a new one.' });
   const text = await request.text();
   if (text.length > MAX_BODY) return reply(413, { error: 'This chat is too long. Start a new one.' });
-  let contents: unknown;
-  try { contents = JSON.parse(text).contents; } catch { return reply(400, { error: 'Malformed request.' }); }
+  let parsed: any;
+  try { parsed = JSON.parse(text); } catch { return reply(400, { error: 'Malformed request.' }); }
+  if (new URL(request.url).pathname === '/extras') return extras(parsed, request, env, fetchFn, now, reply);
+  const contents: unknown = parsed?.contents;
   if (!validContents(contents)) return reply(400, { error: 'Malformed conversation.' });
   if (overCap(request.headers.get('cf-connecting-ip') ?? 'unknown', now)) {
     return reply(429, { error: "You've chatted a lot today. You can still design your bouquet by hand." });

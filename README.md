@@ -18,11 +18,12 @@ Built for the [PayPal AI Hackathon](https://paypalaihackathon.devpost.com/) (202
 
 | Tool | Used for |
 |---|---|
-| **Claude** (`claude-haiku-5-5`, Anthropic SDK, high effort) | The AI florist when the Node shop server is running: a tool-using agent with 12 tools. |
+| **Claude** (`claude-haiku-5-5`, Anthropic SDK, high effort) | The AI florist when the Node shop server is running: a tool-using agent with 13 tools. |
 | **Gemini** (`gemini-3.5-flash-lite`, falling back to `gemini-3.1-flash-lite`) through a free **Cloudflare Worker** (`worker/`) | The same florist on the static GitHub Pages site. The Worker holds the Gemini key, so it never reaches the browser; it only answers requests from the site's own pages (and localhost, for development). |
+| **Channel3** (`server/extras.ts`) | Live product search for the florist's 13th tool, `suggest_extras`: a real vase, chocolates, a card or a plant shown as cards with retailer links. They are bought at the retailer and never join the PayPal order. |
 | **Claude Code** | Used to build and test this project. |
 
-How the florist works: the model never touches the 3D scene or the price. It can only ask for one of 12 tools (search flowers, add, remove, recolour, swap, set wrap, set shape, load a preset, rearrange, show the checkout). The browser runs each tool on the real design with the same editor the panel uses, so every AI edit is a normal edit: visible as it happens, one undo step, and always a valid bouquet. If a design ends up loose, the tool layer arranges it again. The model's instructions and the tool list live in `server/florist.ts` (shared by both backends).
+How the florist works: the model never touches the 3D scene or the price. It can only ask for one of 13 tools (search flowers, add, remove, recolour, swap, set wrap, set shape, load a preset, rearrange, show the checkout, suggest gift extras). The browser runs each tool on the real design with the same editor the panel uses, so every AI edit is a normal edit: visible as it happens, one undo step, and always a valid bouquet. If a design ends up loose, the tool layer arranges it again. The model's instructions and the tool list live in `server/florist.ts` (shared by both backends).
 
 ## How PayPal is used
 
@@ -52,6 +53,7 @@ npm run dev             # site on http://localhost:5173
 |---|---|
 | `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | developer.paypal.com > Apps & Credentials > **Sandbox** |
 | `FLORIST_KEY` | any long random string; the order board asks for it |
+| `CHANNEL3_API_KEY` | optional, for gift extras: trychannel3.com/developers. The Worker has its own copy: `npx wrangler secret put CHANNEL3_API_KEY -c worker/wrangler.toml` |
 | `ANTHROPIC_API_KEY` | console.anthropic.com > API keys (only for the Claude florist) |
 | `VITE_FLORIST_URL` | **no Anthropic key?** Set this to `https://bouquet-florist.bouquet-designer.workers.dev` and the florist uses the free Gemini Worker instead |
 
@@ -72,7 +74,7 @@ The tests cover editing, undo and validation; placement maths; compact layouts f
 
 ## Tech
 
-TypeScript (strict), Vite, Babylon.js, Node (`node:http`, run with `tsx`), PayPal JS SDK v6 and Orders v2, the Anthropic SDK, Gemini through a Cloudflare Worker, and Python tools (`tools/`) that prepare the 3D models.
+TypeScript (strict), Vite, Babylon.js, Node (`node:http`, run with `tsx`), PayPal JS SDK v6 and Orders v2, the Anthropic SDK, Gemini through a Cloudflare Worker, Channel3 product search, and Python tools (`tools/`) that prepare the 3D models.
 
 ## Credits and license
 
