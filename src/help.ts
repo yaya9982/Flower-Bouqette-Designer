@@ -11,7 +11,7 @@ export const HELP: Record<HelpKey, { title: string; clip: string; text: string }
   actions: {
     title: 'Actions',
     clip: 'actions.mp4',
-    text: 'Undo and Redo step back and forward through your changes. Re-arrange lays the same flowers out in a new composition each time you press it, and Undo brings the last one back. Reset view puts the camera back in front.',
+    text: 'Undo and Redo step back and forward through your changes. Re-arrange lays the same flowers out in a new composition each time you press it, and Undo brings the last one back. Reset view puts the camera back in front. The Zoom buttons underneath move closer or further away from the angle you are looking at.',
   },
   shape: {
     title: 'Shape',

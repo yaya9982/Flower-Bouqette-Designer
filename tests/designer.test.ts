@@ -15,6 +15,7 @@ function setup() {
     render(bouquet: Bouquet, selectedId: string | null) { this.renders.push({ bouquet, selectedId }); calls.push('view.render'); },
     settle(bouquet: Bouquet) { return bouquet; },
     resetView() { calls.push('view.resetView'); },
+    zoom() { calls.push('view.zoom'); },
     dispose() { calls.push('view.dispose'); },
     onSelect: (_: string | null) => {},
     onDragMove: (_s: string, _a: number, _d: number) => {},

@@ -11,7 +11,12 @@ import { chromium } from 'playwright-core';
 const url = process.env.URL ?? 'http://localhost:5173/';
 const out = resolve('public/demos');
 mkdirSync(out, { recursive: true });
-const CLIP = { x: 140, y: 0, width: 884, height: 640 };
+// Two framings of the same size. The panel clips show the bouquet beside the side panel; the view clips show the whole 3D view with the cards floating on it.
+const PANEL_SHOT = { viewport: { width: 1024, height: 640 }, clip: { x: 140, y: 0, width: 884, height: 640 } };
+const VIEW_SHOT = { viewport: { width: 1304, height: 640 }, clip: { x: 0, y: 0, width: 884, height: 640 } };
+const SHOT = { bouquet: PANEL_SHOT, shape: PANEL_SHOT, actions: VIEW_SHOT, selected: VIEW_SHOT };
+/** Empty bench: a click here clears the selection. */
+const BENCH = { x: 700, y: 100 };
 const FPS = 25;
 
 // ---- Human-paced cursor ----
@@ -94,12 +99,14 @@ async function drag(page, from, to) {
   await page.mouse.up();
   await page.waitForTimeout(AFTER_CLICK_MS);
 }
+/** Width of the slider's thumb in src/style.css. */
+const THUMB = 13;
 /** Drags a range slider's knob from where it is by a share of the track. */
 async function slide(page, key, share) {
   const box = await page.locator(`[data-key="${key}"]`).first().boundingBox();
   const value = await page.locator(`[data-key="${key}"]`).first().evaluate((i) => (i.value - i.min) / (i.max - i.min));
-  const knob = { x: box.x + 8 + (box.width - 16) * value, y: box.y + box.height / 2 };
-  await drag(page, knob, { x: knob.x + (box.width - 16) * share, y: knob.y });
+  const knob = { x: box.x + THUMB / 2 + (box.width - THUMB) * value, y: box.y + box.height / 2 };
+  await drag(page, knob, { x: knob.x + (box.width - THUMB) * share, y: knob.y });
 }
 
 /** Scrolls the panel so the section with this heading starts at the top. */
@@ -127,7 +134,7 @@ async function findPick(page, flower) {
     await page.mouse.click(p.x, p.y);
     await page.waitForTimeout(250);
     const picked = await page.evaluate(() => { const d = window.__debug; const s = typeof d.selected === 'function' ? d.selected() : d.selected; return d.bouquet().stems.find((x) => x.id === s)?.flower; });
-    if (picked === flower) { await page.mouse.click(60, 60); await page.waitForTimeout(250); return p; }
+    if (picked === flower) { await page.mouse.click(BENCH.x, BENCH.y); await page.waitForTimeout(250); return p; }
   }
   throw new Error(`no click selects a ${flower}`);
 }
@@ -164,7 +171,7 @@ async function findFront(page, flower) {
     await page.mouse.click(p.x, p.y);
     await page.waitForTimeout(250);
     const picked = await page.evaluate(() => { const d = window.__debug; const s = typeof d.selected === 'function' ? d.selected() : d.selected; return d.bouquet().stems.find((x) => x.id === s)?.flower; });
-    await page.mouse.click(60, 60); await page.waitForTimeout(250);
+    await page.mouse.click(BENCH.x, BENCH.y); await page.waitForTimeout(250);
     await RESET_VIEW(page); await page.waitForTimeout(600);
     if (picked === flower) return { id, dx: best.dx };
   }
@@ -173,7 +180,8 @@ async function findFront(page, flower) {
 /** On camera: turns the bouquet by dx with the human-paced drag, then clicks the stem where it now is. */
 async function turnAndSelect(page, scene) {
   const x0 = Math.max(60, Math.min(620 - scene.front.dx, 340 - scene.front.dx / 2));
-  if (Math.abs(scene.front.dx) > 20) await drag(page, { x: x0, y: 570 }, { x: x0 + scene.front.dx, y: 570 });
+  // Just above the Actions card, so the drag starts on the 3D view whichever way it turns.
+  if (Math.abs(scene.front.dx) > 20) await drag(page, { x: x0, y: 405 }, { x: x0 + scene.front.dx, y: 405 });
   await page.waitForTimeout(600);
   const p = await page.evaluate((i) => window.__debug.screenOf(i), scene.front.id);
   await clickAt(page, p.x, p.y);
@@ -203,18 +211,19 @@ const CLIPS = {
   ],
   actions: [
     { preset: null, async run(page) {
-      await showSection(page, 'Actions'); await page.waitForTimeout(600);
+      await page.waitForTimeout(600);
       for (let i = 0; i < 3; i++) await click(page, '[data-key="rearrange"]');
       await click(page, '[data-key="undo"]'); await click(page, '[data-key="undo"]');
     } },
     { preset: 'pink', async run(page) {
-      await showSection(page, 'Actions'); await page.waitForTimeout(600);
+      await page.waitForTimeout(600);
       await click(page, '[data-key="rearrange"]'); await click(page, '[data-key="rearrange"]');
       await click(page, '[data-key="undo"]'); await click(page, '[data-key="redo"]'); await click(page, '[data-key="rearrange"]');
     } },
     { preset: 'peony', async run(page) {
-      await showSection(page, 'Actions'); await page.waitForTimeout(600);
-      await drag(page, { x: 460, y: 330 }, { x: 330, y: 300 });
+      await page.waitForTimeout(600);
+      await drag(page, { x: 200, y: 330 }, { x: 330, y: 300 });
+      await click(page, '[data-key="zoom-in"]'); await click(page, '[data-key="zoom-in"]'); await click(page, '[data-key="zoom-out"]');
       await click(page, '[data-key="reset-view"]'); await click(page, '[data-key="rearrange"]');
     } },
   ],
@@ -234,18 +243,18 @@ const CLIPS = {
   ],
   selected: [
     { preset: null, pick: 'rose', async run(page, scene) {
-      await clickAt(page, scene.at.x, scene.at.y); await showSection(page, 'Selected'); await page.waitForTimeout(500);
+      await clickAt(page, scene.at.x, scene.at.y); await page.waitForTimeout(500);
       await click(page, 'section:has(h2:text-matches("^Selected")) .swatch >> nth=2');
       await slide(page, 'height', 0.4);
     } },
     { preset: null, turn: 'daisy', async run(page, scene) {
-      await turnAndSelect(page, scene); await showSection(page, 'Selected'); await page.waitForTimeout(500);
+      await turnAndSelect(page, scene); await page.waitForTimeout(500);
       await slide(page, 'tilt', 0.35);
       const p = await selectedScreen(page);
       await drag(page, p, { x: p.x - 70, y: p.y + 35 });
     } },
     { preset: null, turn: 'tulip', async run(page, scene) {
-      await turnAndSelect(page, scene); await showSection(page, 'Selected'); await page.waitForTimeout(500);
+      await turnAndSelect(page, scene); await page.waitForTimeout(500);
       await click(page, '[data-key="swap-button"]');
       await click(page, '.flower-select-list [role="option"] >> nth=4');
       const p = await selectedScreen(page);
@@ -256,13 +265,13 @@ const CLIPS = {
 
 // ---- Filming ----
 const CURSOR = `
-#checkout,#florist{display:none!important}
+#checkout{display:none!important}
 #democursor{position:fixed;z-index:99999;left:-80px;top:0;width:34px;height:50px;pointer-events:none;filter:drop-shadow(0 0 1.5px #000) drop-shadow(0 3px 3px rgb(0 0 0 / .4))}
 .demoring{position:fixed;z-index:99998;width:26px;height:26px;margin:-13px 0 0 -13px;border:5px solid rgb(21 96 255 / .85);border-radius:50%;pointer-events:none;animation:demoring 520ms ease-out forwards}
 @keyframes demoring{from{transform:scale(.5);opacity:1}to{transform:scale(3.2);opacity:0}}`;
 
-async function openScene(browser, preset) {
-  const page = await browser.newPage({ viewport: { width: 1024, height: 640 } });
+async function openScene(browser, preset, viewport) {
+  const page = await browser.newPage({ viewport });
   await page.addInitScript((css) => {
     addEventListener('DOMContentLoaded', () => {
       const style = document.createElement('style'); style.textContent = css; document.head.append(style);
@@ -293,12 +302,12 @@ const browser = await chromium.launch({ channel: 'chrome', args: ['--enable-unsa
 for (const name of names) {
   const frames = [];
   for (const [i, scene] of CLIPS[name].entries()) {
-    const page = await openScene(browser, scene.preset);
+    const page = await openScene(browser, scene.preset, SHOT[name].viewport);
     if (scene.turn) { scene.front = await findFront(page, scene.turn); await page.mouse.move(cur.x, cur.y); }
     if (scene.pick) { scene.at = await findPick(page, scene.pick); await page.mouse.move(cur.x, cur.y); }
     const shots = [];
     let filming = true;
-    const grab = (async () => { while (filming) { const buf = await page.screenshot({ type: 'jpeg', quality: 86, clip: CLIP }); shots.push([performance.now(), buf]); } })();
+    const grab = (async () => { while (filming) { const buf = await page.screenshot({ type: 'jpeg', quality: 86, clip: SHOT[name].clip }); shots.push([performance.now(), buf]); } })();
     await scene.run(page, scene);
     await page.waitForTimeout(700);
     filming = false;

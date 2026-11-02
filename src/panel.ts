@@ -4,7 +4,7 @@ import type { Preset, Presets } from './presets';
 import { HELP, type HelpKey } from './help';
 import { moveIndex, typeAhead } from './listbox-nav';
 import { rowAt } from './preview-hit';
-import { formatCents, priceBouquet } from './pricing';
+import { extraLines, formatCents, priceBouquet, stemCents } from './pricing';
 import { SHAPE_OF, SHAPES } from './shapes';
 
 /**
@@ -37,6 +37,7 @@ export interface PanelActions {
   redo(): void;
   rearrange(): void;
   resetView(): void;
+  zoom(factor: number): void;
   loadPreset(presetId: string): void;
 }
 
@@ -341,6 +342,14 @@ function colourWheel(families: { colour: NamedColour; count: number }[], total: 
 }
 
 /** The side panel. It is rebuilt from scratch on every render, keeping focus and the flower list's scroll position. */
+/** How much closer one press of the zoom button brings the camera. */
+const ZOOM_STEP = 0.85;
+
+function floating(card: string, section: HTMLElement): HTMLElement {
+  section.classList.add('floating-card', card);
+  return section;
+}
+
 export class Panel {
   /** Which colour the flower list is narrowed to. A viewing choice, not part of the design, so it is not saved or undone. */
   private colourFilter: string | null = null;
@@ -361,11 +370,16 @@ export class Panel {
 
     // Only the flowers in the bouquet, in the order they were first added.
     const inBouquet = [...new Set(bouquet.stems.map((s) => s.flower))].flatMap((id) => catalog.find(id) ?? []);
+    const leader = () => el('span', { class: 'leader' });
+    const price = (cents: number) => el('span', { class: 'line-price' }, `$${formatCents(cents)}`);
+    const totalCents = priceBouquet(bouquet, catalog).totalCents;
     const bouquetRows = inBouquet.map((type) => {
       const count = bouquet.stems.filter((s) => s.flower === type.id).length;
       const label = flowerLabel(type);
       return el('div', { class: 'row', role: 'listitem' },
         name(type),
+        leader(),
+        price(count * stemCents(type.name)),
         button(`minus-${type.id}`, '−', () => actions.removeOne(type.id), { class: 'step', 'aria-label': `Remove one ${label}` }, total <= MIN_STEMS),
         el('span', { class: 'count', 'aria-label': `${count} ${label}` }, String(count)),
         button(`more-${type.id}`, '+', () => actions.add(type.id), { class: 'step', 'aria-label': `Add one more ${label}` }, full),
@@ -421,9 +435,13 @@ export class Panel {
     };
 
     const sections: HTMLElement[] = [
-      el('p', { class: 'price', 'data-key': 'price-total' }, `Total $${formatCents(priceBouquet(bouquet, catalog).totalCents)}`),
+      el('p', { class: 'price', 'data-key': 'price-total' }, `Total $${formatCents(totalCents)}`),
       this.presetSection(() => this.render(state, actions), actions),
-      helpSection('bouquet', 'Your bouquet', el('div', { class: 'bouquet-list', role: 'list', 'aria-label': 'Flowers in your bouquet' }, ...bouquetRows), el('p', { class: 'row' }, `${total} of ${MAX_STEMS} flowers`)),
+      helpSection('bouquet', 'Your bouquet', el('div', { class: 'shopping-list' },
+        el('div', { class: 'bouquet-list', role: 'list', 'aria-label': 'Flowers in your bouquet' }, ...bouquetRows),
+        el('div', { class: 'list-extras' }, ...extraLines(bouquet).map((line) => el('p', { class: 'row' }, el('span', { class: 'name' }, line.name), leader(), price(line.unitCents)))),
+        el('p', { class: 'row list-total' }, el('span', { class: 'name' }, 'Total'), leader(), price(totalCents)),
+      ), el('p', { class: 'row' }, `${total} of ${MAX_STEMS} flowers`)),
       section('Add flowers',
         el('p', { class: 'hint' }, 'Pick a colour on the wheel to narrow the list.'),
         colourWheel(families, catalog.flowers.length, colourFilter, pickColour),
@@ -443,24 +461,28 @@ export class Panel {
 
     const stem = bouquet.stems.find((s) => s.id === selectedId);
     const type = stem && catalog.find(stem.flower);
+    // These two stay in the panel's markup, so they redraw with it, but float over the 3D view.
     if (stem && type) {
-      sections.push(helpSection('selected', `Selected: ${flowerLabel(type)}`,
+      sections.push(floating('selected-card', helpSection('selected', `Selected: ${flowerLabel(type)}`,
         swatches('flower-colour', 'Colour', type.colours, stem.colour, (id) => actions.recolour(id)),
         slider('height', 'Height', -1, 1, stem.height, (v) => actions.previewAdjust({ height: v }), (v) => actions.adjust({ height: v })),
         slider('tilt', 'Tilt', -0.5, 0.5, stem.tilt, (v) => actions.previewAdjust({ tilt: v }), (v) => actions.adjust({ tilt: v })),
         flowerSelect('swap', 'Swap for', catalog.flowers.map((f) => ({ id: f.id, name: flowerLabel(f) })), stem.flower, (id) => actions.swap(id)),
         button('remove', 'Remove this flower', () => actions.remove(), { class: 'danger' }, total <= MIN_STEMS),
-      ));
-    } else {
-      sections.push(helpSection('selected', 'Selected flower', el('p', {}, 'Click a flower in the 3D view to change it.')));
+      )));
     }
 
-    sections.push(helpSection('actions', 'Actions', el('div', { class: 'actions' },
+    sections.push(floating('actions-card', helpSection('actions', 'Actions', el('div', { class: 'actions' },
       button('undo', 'Undo', () => actions.undo(), {}, !state.canUndo),
       button('redo', 'Redo', () => actions.redo(), {}, !state.canRedo),
       button('rearrange', 'Re-arrange', () => actions.rearrange()),
       button('reset-view', 'Reset view', () => actions.resetView()),
-    )));
+    ))));
+
+    sections.push(el('div', { class: 'zoom-pill', role: 'group', 'aria-label': 'Zoom' },
+      button('zoom-out', '− Zoom out', () => actions.zoom(1 / ZOOM_STEP)),
+      button('zoom-in', '+ Zoom in', () => actions.zoom(ZOOM_STEP)),
+    ));
 
     sections.push(section('About', el('a', { href: `${import.meta.env.BASE_URL}credits.html`, class: 'credits-link' }, 'Model credits')));
 

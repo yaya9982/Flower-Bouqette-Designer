@@ -3,7 +3,7 @@ import type { Panel, PanelActions } from './panel';
 import type { Presets } from './presets';
 import type { BouquetView } from './scene';
 
-type View = Pick<BouquetView, 'render' | 'settle' | 'resetView' | 'onSelect' | 'onDragMove' | 'onDragEnd' | 'dispose'>;
+type View = Pick<BouquetView, 'render' | 'settle' | 'resetView' | 'zoom' | 'onSelect' | 'onDragMove' | 'onDragEnd' | 'dispose'>;
 
 export interface DesignerParts {
   editor: BouquetEditor;
@@ -64,6 +64,7 @@ export class Designer implements PanelActions {
   /** A change worked out elsewhere (the AI florist's tools): one undo step, or none if it changed nothing. */
   applyEdit(change: (b: Bouquet) => Bouquet): void { this.apply(change(this.present)); }
   resetView(): void { this.parts.view.resetView(); }
+  zoom(factor: number): void { this.parts.view.zoom(factor); }
 
   loadPreset(presetId: string): void {
     const { presets, view } = this.parts;

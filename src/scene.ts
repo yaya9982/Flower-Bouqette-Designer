@@ -122,6 +122,13 @@ export class CameraRig {
     this.camera.inertialRadiusOffset = 0;
   }
 
+  /** Moves the camera closer (below 1) or further away (above 1) along its current viewing direction. */
+  zoom(factor: number): void {
+    const { camera } = this;
+    camera.inertialRadiusOffset = 0;
+    camera.radius = Math.min(camera.upperRadiusLimit!, Math.max(camera.lowerRadiusLimit!, camera.radius * factor));
+  }
+
   attach(): void {
     this.camera.attachControl(this.canvas, true, false);
   }
@@ -268,6 +275,10 @@ export class BouquetView {
 
   resetView(): void {
     this.rig.resetView();
+  }
+
+  zoom(factor: number): void {
+    this.rig.zoom(factor);
   }
 
   /** Where a flower's head is on the canvas, in pixels from its top-left corner. */

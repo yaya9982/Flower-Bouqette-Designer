@@ -19,7 +19,8 @@ async function postJson(url: string, body?: unknown): Promise<any> {
 }
 
 /**
- * The pay area under the panel: delivery date, card message and the PayPal, Pay Later and Venmo buttons.
+ * The pay area under the panel: delivery date, card message and a button opening a small sheet with the PayPal,
+ * Pay Later and Venmo buttons. The sheet is hidden with visibility, so PayPal's buttons stay laid out while it is shut.
  * It lives outside the panel because the panel is rebuilt on every change, which would remove PayPal's buttons.
  * The shop's server prices the order itself; this only sends the design.
  */
@@ -27,6 +28,9 @@ export class Checkout {
   private readonly total = document.createElement('p');
   private readonly date = document.createElement('input');
   private readonly message = document.createElement('textarea');
+  private readonly proceed = document.createElement('button');
+  private readonly sheet = document.createElement('div');
+  private readonly closeSheet = document.createElement('button');
   private readonly buttons = document.createElement('div');
   private readonly status = document.createElement('p');
   private readonly payLaterMessage = document.createElement('paypal-message');
@@ -56,12 +60,32 @@ export class Checkout {
     this.status.className = 'pay-status';
     this.status.setAttribute('role', 'status');
     this.buttons.className = 'pay-buttons';
+    this.proceed.type = 'button';
+    this.proceed.className = 'pay-proceed';
+    this.proceed.textContent = 'Proceed to checkout';
+    this.proceed.disabled = true;
+    this.proceed.addEventListener('click', () => this.openSheet());
+    this.closeSheet.type = 'button';
+    this.closeSheet.textContent = '×';
+    this.closeSheet.setAttribute('aria-label', 'Close');
+    this.closeSheet.addEventListener('click', () => this.hideSheet());
+    const title = document.createElement('p');
+    title.textContent = 'Choose how to pay';
+    const head = document.createElement('div');
+    head.className = 'pay-sheet-head';
+    head.append(title, this.closeSheet);
+    this.sheet.className = 'pay-sheet';
+    this.sheet.setAttribute('role', 'dialog');
+    this.sheet.setAttribute('aria-label', 'Choose how to pay');
+    this.sheet.addEventListener('keydown', (e) => { if (e.key === 'Escape') this.hideSheet(); });
+    this.sheet.append(head, this.buttons);
     this.root.replaceChildren(
       this.total,
       field('delivery-date', 'Delivery date', this.date),
       field('card-message', 'Card message', this.message),
-      this.buttons,
+      this.proceed,
       this.status,
+      this.sheet,
     );
     this.update(this.design());
 
@@ -98,6 +122,7 @@ export class Checkout {
       this.payLaterMessage.currencyCode = 'USD';
       this.buttons.append(this.payLaterMessage);
       this.update(this.design());
+      this.proceed.disabled = false;
     } catch (error) {
       console.error(error);
       this.say('Checkout is unavailable right now. You can keep designing.');
@@ -111,12 +136,23 @@ export class Checkout {
     this.payLaterMessage.amount = total;
   }
 
-  /** Brings the pay buttons into view (the florist's "ready to pay" step). */
+  /** Brings the pay area into view (the florist's "ready to pay" step). */
   show(): void {
     this.root.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     this.root.classList.remove('flash');
     void this.root.offsetWidth;
     this.root.classList.add('flash');
+  }
+
+  private openSheet(): void {
+    if (this.paying || !this.date.reportValidity()) return;
+    this.sheet.classList.add('open');
+    this.closeSheet.focus();
+  }
+
+  private hideSheet(): void {
+    this.sheet.classList.remove('open');
+    this.proceed.focus();
   }
 
   private addButton(button: HTMLElement, session: PaymentSession): void {
@@ -132,6 +168,8 @@ export class Checkout {
         this.paying = false;
         this.say(`Payment did not start: ${e.message}`);
       });
+      // The sheet sits over the status line, which now has news.
+      this.hideSheet();
     });
     this.buttons.append(button);
   }

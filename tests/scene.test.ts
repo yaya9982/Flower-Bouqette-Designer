@@ -235,6 +235,22 @@ describe('CameraRig', () => {
     expect([camera.inertialAlphaOffset, camera.inertialBetaOffset, camera.inertialRadiusOffset]).toEqual([0, 0, 0]);
   });
 
+  it('zoom changes only the distance, stops coasting and keeps within the limits', () => {
+    const rig = new CameraRig(scene, canvas);
+    rig.follow(0.5, 0);
+    const { camera } = rig;
+    camera.alpha = 1;
+    camera.beta = 0.3;
+    camera.radius = 2;
+    camera.inertialRadiusOffset = 0.2;
+    rig.zoom(0.5);
+    expect([camera.radius, camera.alpha, camera.beta, camera.inertialRadiusOffset]).toEqual([1, 1, 0.3, 0]);
+    rig.zoom(0.01);
+    expect(camera.radius).toBe(camera.lowerRadiusLimit);
+    rig.zoom(1000);
+    expect(camera.radius).toBe(camera.upperRadiusLimit);
+  });
+
   it('refits only when the reach changes by more than 12%', () => {
     const rig = new CameraRig(scene, canvas);
     rig.follow(0.5, 0);

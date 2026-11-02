@@ -32,6 +32,12 @@ const PAPER_CENTS: Record<PaperId, number> = { none: 0, kraft: 300, tissue: 400,
 const PAPER_LABELS: Record<PaperId, string> = { none: 'No paper', kraft: 'Kraft paper', tissue: 'Tissue paper', matte: 'Matte paper' };
 const ARRANGEMENT_CENTS = 800;
 
+/** Everything on the order that is not a flower. */
+export function extraLines(b: Bouquet): QuoteLine[] {
+  const paper = PAPER_CENTS[b.wrap.paper] > 0 ? [{ name: `Wrap: ${PAPER_LABELS[b.wrap.paper]}`, quantity: 1, unitCents: PAPER_CENTS[b.wrap.paper] }] : [];
+  return [...paper, { name: 'Hand-tied arrangement', quantity: 1, unitCents: ARRANGEMENT_CENTS }];
+}
+
 /** PayPal cuts item names after 127 characters. */
 const MAX_NAME = 127;
 
@@ -50,9 +56,7 @@ export function priceBouquet(b: Bouquet, catalog: Catalog): Quote {
     if (line) line.quantity++;
     else byKey.set(key, { name: `${name} (${colour})`.slice(0, MAX_NAME), quantity: 1, unitCents: stemCents(name) });
   }
-  const lines = [...byKey.values()];
-  if (PAPER_CENTS[b.wrap.paper] > 0) lines.push({ name: `Wrap: ${PAPER_LABELS[b.wrap.paper]}`, quantity: 1, unitCents: PAPER_CENTS[b.wrap.paper] });
-  lines.push({ name: 'Hand-tied arrangement', quantity: 1, unitCents: ARRANGEMENT_CENTS });
+  const lines = [...byKey.values(), ...extraLines(b)];
   return { lines, totalCents: lines.reduce((sum, l) => sum + l.unitCents * l.quantity, 0) };
 }
 
